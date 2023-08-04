@@ -253,7 +253,6 @@ if __name__ == '__main__':
     # make a list of states
     stateNames = ['a','r','V, mV']
     states = [x_ar[0], x_ar[1], volts_roi]
-    # times = times[2:]
     nStates = len(states)
     fig, axes = plt.subplots(nStates,1, sharex=True)
     for iState in range(nStates):

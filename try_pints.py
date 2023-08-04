@@ -9,10 +9,11 @@ import pickle as pkl
 def ion_channel_model(t, x, theta):
     a, r = x[:2]
     *p, g = theta[:9]
-    k1 = p[0] * np.exp(p[1] * V(t))
-    k2 = p[2] * np.exp(-p[3] * V(t))
-    k3 = p[4] * np.exp(p[5] * V(t))
-    k4 = p[6] * np.exp(-p[7] * V(t))
+    v = V(t)
+    k1 = p[0] * np.exp(p[1] * v)
+    k2 = p[2] * np.exp(-p[3] * v)
+    k3 = p[4] * np.exp(p[5] * v)
+    k4 = p[6] * np.exp(-p[7] * v)
     a_inf = k1 / (k1 + k2)
     tau_a = 1 / (k1 + k2)
     r_inf = k4 / (k3 + k4)

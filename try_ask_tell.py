@@ -10,10 +10,11 @@ plt.ioff()
 def ion_channel_model(t, x, theta):
     a, r = x[:2]
     *p, g = theta[:9]
-    k1 = p[0] * np.exp(p[1] * V(t))
-    k2 = p[2] * np.exp(-p[3] * V(t))
-    k3 = p[4] * np.exp(p[5] * V(t))
-    k4 = p[6] * np.exp(-p[7] * V(t))
+    v = V(t)
+    k1 = p[0] * np.exp(p[1] * v)
+    k2 = p[2] * np.exp(-p[3] * v)
+    k3 = p[4] * np.exp(p[5] * v)
+    k4 = p[6] * np.exp(-p[7] * v)
     a_inf = k1 / (k1 + k2)
     tau_a = 1 / (k1 + k2)
     r_inf = k4 / (k3 + k4)
@@ -137,8 +138,6 @@ if __name__ == '__main__':
     ####################################################################################################################
     ## Classes to run optimisation in pints
     nBsplineCoeffs = len(coeffs) * 2  # this to be used in params method of class ForwardModel
-    Thetas_ODE = p_true # initial values of the ODE parametes
-    Betas_BSPL = 0.01 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
     print('Number of B-spline coeffs: ' + str(nBsplineCoeffs))
     nOutputs = 6
     # define a class that outputs only b-spline surface features
@@ -260,8 +259,8 @@ if __name__ == '__main__':
     ####################################################################################################################
     ## Run the optimisation
     lambd = 0.5 * 10e5
-    init_thetas = Thetas_ODE
-    init_betas = Betas_BSPL
+    init_thetas = [2.26e-4, 0.0599, 3.45e-5, 0.04462, 0.0973, 8.91e-3, 5.15e-3, 0.05158, 0.2524]
+    init_betas = 0.1 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
     tic = tm.time()
     model_bsplines = bsplineOutput()
     model_ode = ODEOutput()
@@ -274,22 +273,12 @@ if __name__ == '__main__':
     ## associate the cost with it
     error_inner  = InnerCriterion(problem=problem_inner)
     error_outer = OuterCriterion(problem=problem_outer)
-    ##  define everything for the inner optimisation
+    ##  define boundaries for the inner optimisation
     boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas),0.6 * np.ones_like(init_betas))
-    # optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,method=pints.CMAES)
-    # optimiser_inner.set_max_iterations(30000)
-    # optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-6)
-    # optimiser_inner.set_parallel(False)
-    # # optimiser_inner.set_log_to_file(filename='Beta_iterations.csv', csv=True)
-    # optimiser_inner.set_log_to_screen(False)
-    ## define everything for the outer optimisation
+    ## define boundaries for the outer optimisation
     boundaries_thetas = pints.RectangularBoundaries(np.zeros_like(init_thetas), np.ones_like(init_thetas))
-    # optimiser_outer = pints.OptimisationController(error_outer, x0=init_thetas, boundaries=boundaries_thetas,method=pints.CMAES)
-    # optimiser_outer.set_max_iterations(30000)
-    # optimiser_outer.set_max_unchanged_iterations(iterations=20, threshold=1e-4)
-    # optimiser_outer.set_log_to_file(filename='Theta_iterations.csv', csv=True)
     ####################################################################################################################
-    ## get error measures at true ODE param values
+    ## get error measures at true ODE parameter values
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
                                                    method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
@@ -301,9 +290,6 @@ if __name__ == '__main__':
     Betas_given_true = Betas_BSPL.copy()
     ####################################################################################################################
     # take 1: loosely based on ask-tel example from  pints
-    Thetas_ODE = [2.26e-4, 0.0599, 3.45e-5, 0.04462, 0.0973, 8.91e-3, 5.15e-3, 0.05158,
-                  0.2524]  # initial values of the ODE parametes - manually adjusted to be away from truth
-    Betas_BSPL = 0.01 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
     convergence_threshold = 1e-6
     # Create an outer optimisation object
     big_tic = tm.time()
@@ -325,7 +311,7 @@ if __name__ == '__main__':
         tic = tm.time()
         for theta in thetas:
             # assign the variable that is readable in the class of B-spline evaluation
-            Thetas_ODE = theta
+            Thetas_ODE = theta.copy()
             # fit the b-spline surface given the sampled value of ODE parameter vector
             # introduce an optimiser every time beacause it does not understand why thre is already an instance of the optimier
             optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
@@ -338,7 +324,8 @@ if __name__ == '__main__':
             # init_betas = Betas_BSPL # update the init conds for the next itimiser instance
             # evaluate the cost function at the sampled value of ODE parameter vector
             InnerCosts.append(InnerCost)
-            OuterCosts.append(error_outer(Thetas_ODE))
+            OuterCosts.append(error_outer(theta))
+            del Thetas_ODE # bin this variable to make sure it is not updates somewhere else
         # feed the evaluated scores into the optimisation object
         optimiser_outer.tell(OuterCosts)
         toc = tm.time()
@@ -381,11 +368,12 @@ if __name__ == '__main__':
     plt.xlabel('Iteration')
     plt.ylabel('Outer optimisation cost')
     for iter in range(len(f_best)):
-        plt.scatter(iter*np.ones(len(InnerCosts_all[iter])),InnerCosts_all[iter], c='k',marker='.', alpha=.5, linewidths=0)
+        plt.scatter(iter * np.ones(len(InnerCosts_all[iter])), InnerCosts_all[iter], c='k', marker='.', alpha=.5,
+                    linewidths=0)
     plt.plot(range(iter), np.ones(iter) * InnerCost_true, '-m', linewidth=2.5, alpha=.5, label='Cost at truth')
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('Figures/inner_cost_ask_tell.png')
+    plt.savefig('Figures/inner_cost_ask_tell_dif_costs.png')
 
     # plot evolution of inner costs
     plt.figure()
@@ -393,31 +381,33 @@ if __name__ == '__main__':
     plt.xlabel('Iteration')
     plt.ylabel('Inner optimisation cost')
     for iter in range(len(f_best)):
-        plt.scatter(iter*np.ones(len(OuterCosts_all[iter])),OuterCosts_all[iter],c='k',marker='.',alpha=.5,linewidths=0)
+        plt.scatter(iter * np.ones(len(OuterCosts_all[iter])), OuterCosts_all[iter], c='k', marker='.', alpha=.5,
+                    linewidths=0)
     plt.plot(range(iter), np.ones(iter) * OuterCost_true, '-m', linewidth=2.5, alpha=.5, label='Cost at truth')
-    plt.plot(f_best,'-b',linewidth=1.5,label='Best cost')
+    plt.plot(f_best, '-b', linewidth=1.5, label='Best cost')
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('Figures/outer_cost_ask_tell.png')
+    plt.savefig('Figures/outer_cost_ask_tell_dif_costs.png')
 
+    # plot parameter values
     fig, axes = plt.subplots(3, 3, figsize=(20, 8), sharex=True)
     n_walkers = int(x_visited.shape[0] / len(x_best))
     for iAx, ax in enumerate(axes.flatten()):
         for iter in range(len(x_best)):
-            x_visited_iter = x_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
-            ax.scatter(iter*np.ones(len(x_visited_iter)),x_visited_iter,c='k',marker='.',alpha=.2,linewidth=0)
-        ax.plot(range(iter),np.ones(iter)*p_true[iAx], '-m', linewidth=2.5,alpha=.5, label='true')
-        ax.plot(x_guessed[:,iAx],'--r',linewidth=1.5,label='guessed')
-        ax.plot(x_best[:,iAx],'-b',linewidth=1.5,label='best')
-        ax.set_ylabel('$p_{'+str(iAx)+'}$')
+            x_visited_iter = x_visited[iter * n_walkers:(iter + 1) * n_walkers, iAx]
+            ax.scatter(iter * np.ones(len(x_visited_iter)), x_visited_iter, c='k', marker='.', alpha=.2,
+                       linewidth=0)
+        ax.plot(range(iter), np.ones(iter) * p_true[iAx], '-m', linewidth=2.5, alpha=.5, label='true')
+        ax.plot(x_guessed[:, iAx], '--r', linewidth=1.5, label='guessed')
+        ax.plot(x_best[:, iAx], '-b', linewidth=1.5, label='best')
+        ax.set_ylabel('$p_{' + str(iAx) + '}$')
     ax.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('Figures/ODE_params_ask_tell.png')
-
+    plt.savefig('Figures/ODE_params_ask_tell_dif_costs.png')
 
     # plot model output
     current_true = observation(times_roi, x_ar, p_true)
-    Thetas_ODE = x_best[-1,:]
+    Thetas_ODE = x_best[-1, :]
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
                                                    method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
@@ -425,29 +415,28 @@ if __name__ == '__main__':
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(False)
     Betas_BSPL, BSPL_cost = optimiser_inner.run()
-    opt_model_output = model_bsplines.simulate(Betas_BSPL,times_roi)
+    opt_model_output = model_bsplines.simulate(Betas_BSPL, times_roi)
     states, state_derivs, rhs = np.split(opt_model_output, 3, axis=1)
     *ps, g = Thetas_ODE[:9]
     current_model = g * states[:, 0] * states[:, 1] * (voltage - EK)
-    fig, axes = plt.subplots(3,2,figsize=(20,8), sharex=True)
-    y_labels = ['I', '$\dot{a}$', '$\dot{r}$','a','r']
-    axes[0, 0].plot(times_roi,current_true, '-k', label='true')
-    axes[0, 0].plot(times_roi,current_model, '--r', label='Optimised model output')
-    axes[1, 0].plot(times_roi,rhs[:,0], '-k', label='RHS')
-    axes[1, 0].plot(times_roi,state_derivs[:,0], '--r', label='B-spline derivative')
-    axes[2, 0].plot(times_roi,rhs[:,1], '-k', label='RHS')
-    axes[2, 0].plot(times_roi,state_derivs[:,1], '--r', label='B-spline derivative')
-    axes[0, 1].plot(times_roi, x_ar[0,:], '-k', label='true')
-    axes[0, 1].plot(times_roi, states[:, 0], '--r', label='B-spline approximation')
-    axes[1, 1].plot(times_roi, x_ar[1,:], '-k', label='true')
+    fig, axes = plt.subplots(2, 3)
+    y_labels = ['I', '$\dot{a}$', '$\dot{r}$', 'a', 'r']
+    axes[0, 2].plot(times_roi, current_true, '-k', label='Current true')
+    axes[0, 2].plot(times_roi, current_model, '--r', label='Optimised model output')
+    axes[0, 0].plot(times_roi, rhs[:, 0], '-k', label='$\dot{a}$')
+    axes[0, 0].plot(times_roi, state_derivs[:, 0], '--r', label='B-spline derivative')
+    axes[0, 1].plot(times_roi, rhs[:, 1], '-k', label='$\dot{r}$')
+    axes[0, 1].plot(times_roi, state_derivs[:, 1], '--r', label='B-spline derivative')
+    axes[1, 0].plot(times_roi, x_ar[0, :], '-k', label=y_labels[3] + ' true')
+    axes[1, 0].plot(times_roi, states[:, 0], '--r', label='B-spline approximation')
+    axes[1, 1].plot(times_roi, x_ar[1, :], '-k', label=y_labels[4] + ' true')
     axes[1, 1].plot(times_roi, states[:, 1], '--r', label='B-spline approximation')
-    # for iAx, ax in enumerate(axes.flatten()[:-2]):
-    #     ax.set_xlabel('time,ms')
-    #     ax.legend(fontsize=14, loc='upper right')
-    #     ax.set_ylabel(y_labels[iAx])
-    # ax.set_xlabel('time,ms')
-    plt.tight_layout()
-    ax.legend(fontsize=14, loc='upper right')
-    plt.savefig('Figures/cost_terms_ask_tell.png')
+    for iAx, ax in enumerate(axes.flatten()[:-1]):
+        ax.set_xlabel('time,ms', fontsize=12)
+        ax.legend(fontsize=12, loc='lower right')
+    #     ax.set_ylabel(y_labels[iAx],fontsize=8)
+    plt.tight_layout(pad=0.3)
+    # plt.ioff()
+    plt.savefig('Figures/cost_terms_ask_tell_dif_costs.png')
     ####################################################################################################################
     print('pause here')
