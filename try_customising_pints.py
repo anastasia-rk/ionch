@@ -194,6 +194,61 @@ if __name__ == '__main__':
             gradient_match_cost = np.sum(integral_quad, axis=0)
             # not the most elegant implementation because it just grabs global lambda
             return data_fit_cost + lambd * gradient_match_cost
+
+
+    class CustomBoundaries(pints.Boundaries):
+        def __init__(self, lower, upper):
+            super(CustomBoundaries, self).__init__()
+
+            # Convert to shape (n,) vectors, copy to ensure they remain unchanged
+            self._lower = pints.vector(lower)
+            self._upper = pints.vector(upper)
+
+            # Get and check dimension
+            self._n_parameters = len(self._lower)
+            if len(self._upper) != self._n_parameters:
+                raise ValueError('Lower and upper bounds must have same length.')
+
+            # Check dimension is at least 1
+            if self._n_parameters < 1:
+                raise ValueError('The parameter space must have a dimension > 0')
+
+            # Check if upper > lower
+            if not np.all(self._upper > self._lower):
+                raise ValueError('Upper bounds must exceed lower bounds.')
+
+
+    def check(self, parameters):
+        """ See :meth:`pints.Boundaries.check()`. """
+        coeffs_a, coeffs_r = np.split(parameters, 2)
+        tck_a = (knots, coeffs_a, degree)
+        tck_r = (knots, coeffs_r, degree)
+        fun_a = sp.interpolate.splev(times, tck_a, der=0)
+        fun_r = sp.interpolate.splev(times, tck_r, der=0)
+        if np.any(fun_a < self._lower) or np.any(fun_r < self._lower):
+            return False
+        if np.any(fun_a >= self._upper) or np.any(fun_r >= self._upper):
+            return False
+        return True
+
+    def n_parameters(self):
+        """ See :meth:`pints.Boundaries.n_parameters()`. """
+        return self._n_parameters
+
+    def lower(self):
+        """
+        Returns the lower boundaries for all parameters (as a read-only NumPy
+        array).
+        """
+        return self._lower
+
+    def upper(self):
+        """
+        Returns the upper boundary for all parameters (as a read-only NumPy
+        array).
+        """
+        return self._upper
+
     ####################################################################################################################
     ## Run the optimisation
     lambd = 0.5 * 10e5

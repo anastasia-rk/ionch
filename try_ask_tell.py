@@ -43,7 +43,7 @@ if __name__ == '__main__':
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
     # tlim = [0, int(volt_times[-1]*1000)]
-    tlim = [0, 3600]
+    tlim = [0, 4600]
     times = np.linspace(*tlim, tlim[-1])
     # define a region of interest - we will need this to preserve the
     # trajectories of states given the full clamp and initial position, while
@@ -55,34 +55,46 @@ if __name__ == '__main__':
     times_quad = np.linspace(times_roi[0], times_roi[-1],num=2*len(ROI)) # set up time nodes for quadrature integration
     volts_new = V(times)
     d2v_dt2 = np.diff(volts_new, n=2)
-    switchpoints = np.abs(d2v_dt2) > 1e-6
+    dv_dt = np.diff(volts_new)
+    der1_nonzero = np.abs(dv_dt) > 1e-6
+    der2_nonzero = np.abs(d2v_dt2) > 1e-6
+    switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
     # ignore everything outside of the region of iterest
     switchpoints_roi = switchpoints[ROI_start:ROI_end]
 
     ## Generate the synthetic data
     # parameter values for the model
     EK = -80
-    p_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
+    thetas_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
     # initialise and solve ODE
     x0 = [0, 1]
     # solve initial value problem
-    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[p_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
+    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[thetas_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
     x_ar = solution.sol(times_roi)
-    current = observation(times_roi, x_ar, p_true)
+    state_hidden_true = x_ar
+    current_true = observation(times_roi, x_ar, thetas_true)
 
     ####################################################################################################################
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
-    nPoints_closest = 15  # the number of points from each jump where knots are placed at the finest grid
-    nPoints_between_closest = 5  # step between knots at the finest grid
-    nPoints_around_jump = 45  # the time period from jump on which we place medium grid
-    step_between_knots = 45  # this is the step between knots around the jump in the medium grid
+    nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
+    nPoints_between_closest = 8  # step between knots at the finest grid
+    nPoints_around_jump = 48  # the time period from jump on which we place medium grid
+    step_between_knots = 48  # this is the step between knots around the jump in the medium grid
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values
 
     # get the times of all jumps
-    jump_indeces = [0] + [i for i, x in enumerate(switchpoints_roi) if x] + [
+    a = [0] + [i + 1 for i, x in enumerate(switchpoints_roi) if x] + [
         len(ROI)]  # get indeces of all the switchpoints, add t0 and tend
-    # jump_indeces =  [i for i, x in enumerate(switchpoints_new) if x] # indeces of switchpoints only
+    # remove consecutive numbers from the list
+    b = []
+    for i in range(len(a)):
+        if len(b) == 0:  # if the list is empty, we add first item from 'a' (In our example, it'll be 2)
+            b.append(a[i])
+        else:
+            if a[i] > a[i - 1] + 1:  # for every value of a, we compare the last digit from list b
+                b.append(a[i])
+    jump_indeces = b.copy()
     abs_distance_lists = [[(num - index) for num in range(len(ROI) + 1)] for index in
                           jump_indeces]  # compute absolute distance between each time and time of jump
     min_pos_distances = [min(filter(lambda x: x >= 0, lst)) for lst in zip(*abs_distance_lists)]
@@ -92,28 +104,34 @@ if __name__ == '__main__':
     last_jump_index = np.where(np.array(max_neg_distances) == 0)[0][-2]
     max_neg_distances[last_jump_index:] = [-np.inf] * len(max_neg_distances[last_jump_index:])
     knots_after_jump = [
-        ((x <= nPoints_closest) and (x % nPoints_between_closest == 0)) or (
+        ((x <= 2) and (x % 1 == 0)) or ((x <= nPoints_closest) and (x % nPoints_between_closest == 0)) or (
                 (nPoints_closest <= x <= nPoints_around_jump) and (x % step_between_knots == 0)) for
         x in min_pos_distances]  # create a knot sequence that has higher density of knots after each jump
-    knots_before_jump = [((x >= -nPoints_closest) and (x % (nPoints_closest + 1) == 0)) for x in
-                         max_neg_distances]  # list on knots befor each jump
+    # close_knots_duplicates = [(x <= 1) for x in min_pos_distances]
+    # knots_before_jump = [((x >= -nPoints_closest) and (x % (nPoints_closest + 1) == 0)) for x in
+    #                      max_neg_distances]  # list on knots befor each jump - use this form if you don't want fine grid before the jump
+    knots_before_jump = [(x >= -1) for x in max_neg_distances]  # list on knots before each jump - add a fine grid
     knots_jump = [a or b for a, b in zip(knots_after_jump, knots_before_jump)]
     # add t0 and t_end as a single point in the end
     knots_jump[0] = True
     knots_jump[-1] = True  # logical sum for two boolean lists
     # to do this we then need to add additional coarse grid of knots between two jumps:
-    knot_times = [i + ROI_start for i, x in enumerate(knots_jump) if x]  # convert to numeric array again
+    knot_times = [i + ROI_start for i, x in enumerate(knots_jump) if x]
+    # close_knots_duplicate_times = [i + ROI_start for i, x in enumerate(close_knots_duplicates) if x]
+    # convert to numeric array again
     # add the final time point in case it is not already included - we need this if we are only adding values after steps
     if not np.isin(ROI_end, knot_times):
         knot_times.append(ROI_end)
-    knots_all = knot_times.copy()
+    knots_all = knot_times.copy()  # + close_knots_duplicate_times.copy() # to see if having two splines tied to the close knots will improve precision
     for iKnot, timeKnot in enumerate(knot_times[:-1]):
+        # add coarse grid knots between jumps
         if knot_times[iKnot + 1] - timeKnot > step_between_knots:
             # create evenly spaced points and drop start and end - those are already in the grid
             knots_between_jumps = np.rint(
                 np.linspace(timeKnot, knot_times[iKnot + 1], num=nPoints_between_jumps + 2)[1:-1]).astype(int)
             # add indeces to the list
             knots_all = knots_all + list(knots_between_jumps)
+        # add copies of the closest points to the jump
     knots_all.sort()  # sort list in ascending order - this is done inplace!
 
     # build the collocation matrix using the defined knot structure
@@ -258,15 +276,18 @@ if __name__ == '__main__':
             return data_fit_cost + lambd * gradient_match_cost
     ####################################################################################################################
     ## Run the optimisation
-    lambd = 0.5 * 10e5
-    init_thetas = [2.26e-4, 0.0599, 3.45e-5, 0.04462, 0.0973, 8.91e-3, 5.15e-3, 0.05158, 0.2524]
-    init_betas = 0.1 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
+    lambd = 0.5
+    nThetas = len(thetas_true)
+    init_thetas = 0.001 * np.ones(nThetas) #initial values for ODE parameters
+    sigma0_thetas = 0.0005 * np.ones(nThetas)
+    init_betas = 0.5 * np.ones(nBsplineCoeffs) # initial values of B-spline coefficients
+    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
     tic = tm.time()
     model_bsplines = bsplineOutput()
     model_ode = ODEOutput()
     ## create the problem of comparing the modelled current with measured current
     voltage = V(times_roi) # must read voltage at the correct times to match the output
-    values_to_match_output_dims = np.transpose(np.array([current,voltage,current,voltage,current,voltage]))
+    values_to_match_output_dims = np.transpose(np.array([current_true,voltage,current_true,voltage,current_true,voltage]))
     #^ we actually only need first two columns in this array but pints wants to have the same number of values and outputs
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=times_roi, values=values_to_match_output_dims)
     problem_outer = pints.MultiOutputProblem(model=model_ode, times=times_roi, values=values_to_match_output_dims)
@@ -274,30 +295,77 @@ if __name__ == '__main__':
     error_inner  = InnerCriterion(problem=problem_inner)
     error_outer = OuterCriterion(problem=problem_outer)
     ##  define boundaries for the inner optimisation
-    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas),0.6 * np.ones_like(init_betas))
+    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas),0.99 * np.ones_like(init_betas))
     ## define boundaries for the outer optimisation
     boundaries_thetas = pints.RectangularBoundaries(np.zeros_like(init_thetas), np.ones_like(init_thetas))
     ####################################################################################################################
-    ## get error measures at true ODE parameter values
-    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
-                                                   method=pints.CMAES)
+    # fit B-spline coefficients to the hidden state directly
+    coeffs_ls = np.dot((np.dot(np.linalg.pinv(np.dot(collocation, collocation.T)), collocation)), state_hidden_true.T)
+    Betas_BSPL = coeffs_ls.T.flatten()
+    Thetas_ODE = thetas_true.copy()
+    InnerCost_true = error_inner(Betas_BSPL)
+    OuterCost_true = error_outer(Thetas_ODE)
+    Betas_BSPL_fit_to_true_states = Betas_BSPL.copy()
+    ## get inner cirterion at true ODE param values assuming Betas are unkown
+    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
+                                                   boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
-    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-6)
+    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-7)
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(True)
-    Betas_BSPL, InnerCost_true = optimiser_inner.run()
-    OuterCost_true = error_outer(p_true)
-    Betas_given_true = Betas_BSPL.copy()
+    Betas_BSPL_given_true_theta, InnerCost_given_true_theta = optimiser_inner.run()
+    OuterCost_given_true_theta = error_outer(Thetas_ODE)
+
+    model_output_fit_to_state = model_bsplines.simulate(Betas_BSPL_fit_to_true_states, times_roi)
+    state_direct, state_deriv_direct, rhs_direct = np.split(model_output_fit_to_state, 3, axis=1)
+    model_output_fit_at_truth = model_bsplines.simulate(Betas_BSPL_given_true_theta, times_roi)
+    state_at_truth, state_deriv_at_truth, rhs_truth = np.split(model_output_fit_at_truth, 3, axis=1)
+    *ps, g = Thetas_ODE
+    current_model_direct = g * state_direct[:, 0] * state_direct[:,1] * (voltage - EK)
+    current_model_at_truth = g * state_at_truth[:, 0] * state_at_truth[:,1] * (voltage - EK)
+    fig, axes = plt.subplot_mosaic([['a)', 'a)'], ['b)', 'c)'], ['d)', 'e)']], layout='constrained')
+    # fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+    y_labels = ['I', '$\dot{a}$', '$\dot{r}$', '$a$', '$r$']
+    axes['a)'].plot(times_roi, current_true, '-k', label=r'Current true', linewidth=2, alpha=0.7)
+    axes['a)'].plot(times_roi, current_model_direct, '--r', label=r'Fit to state directly')
+    axes['a)'].plot(times_roi, current_model_at_truth, '--b', label=r'Optimised given true $\theta$')
+    axes['b)'].plot(times_roi[:], rhs_direct[:,0], '-k', label='$\dot{a}$ fit directly', linewidth=2, alpha=0.7)
+    axes['b)'].plot(times_roi[:], state_deriv_direct[:,0], '--r', label=r'B-spline derivative fit directly')
+    axes['b)'].plot(times_roi[:], rhs_truth[:,0], '-m', label=r'$\dot{a}$ given true $\theta$', linewidth=2, alpha=0.7)
+    axes['b)'].plot(times_roi[:], state_deriv_at_truth[:,0], '--b', label=r'B-spline derivative given true $\theta$')
+    axes['c)'].plot(times_roi[:], rhs_direct[:,1], '-k', label='$\dot{r}$ fit directly', linewidth=2, alpha=0.7)
+    axes['c)'].plot(times_roi[:], state_deriv_direct[:,1], '--r', label=r'B-spline derivative fit directly')
+    axes['c)'].plot(times_roi[:], rhs_truth[:,1], '-m', label=r'$\dot{r}$ given true $\theta$', linewidth=2, alpha=0.7)
+    axes['c)'].plot(times_roi[:], state_deriv_at_truth[:,1], '--b', label=r'B-spline derivative given true $\theta$')
+    axes['d)'].plot(times_roi, state_hidden_true[0, :], '-k', label=r'$a$ true', linewidth=2, alpha=0.7)
+    axes['d)'].plot(times_roi, state_direct[:, 0], '--r', label=r'B-spline approximation direct fit')
+    axes['d)'].plot(times_roi, state_at_truth[:, 0], '--b', label=r'B-spline approximation given true $\theta$')
+    axes['e)'].plot(times_roi, state_hidden_true[1, :], '-k', label=r'$r$ true', linewidth=2, alpha=0.7)
+    axes['e)'].plot(times_roi, state_direct[:, 1], '--r', label=r'B-spline approximation direct fit')
+    axes['e)'].plot(times_roi, state_at_truth[:, 1], '--b', label=r'B-spline approximation given true $\theta$')
+    iAx = 0
+    for _, ax in axes.items():
+        # ax.set_xlim([3380,3420])
+        ax.set_ylabel(y_labels[iAx], fontsize=12)
+        ax.legend(fontsize=12, loc='best')
+        iAx +=1
+    # ax.set_xlabel('time,ms', fontsize=12)
+    # plt.tight_layout(pad=0.3)
+    # plt.ioff()
+    plt.savefig('Figures/cost_terms_at_truth.png', dpi=600)
     ####################################################################################################################
-    # take 1: loosely based on ask-tel example from  pints
-    convergence_threshold = 1e-6
+    # This algorithm is loosely based on ask-tel example from  pints
+    convergence_threshold = 1e-5
+    iter_for_convergence = 50
     # Create an outer optimisation object
     big_tic = tm.time()
-    optimiser_outer = pints.CMAES(x0=init_thetas, boundaries=boundaries_thetas)
+    optimiser_outer = pints.CMAES(x0=init_thetas,sigma0=sigma0_thetas, boundaries=boundaries_thetas)
+    optimiser_outer.set_population_size(min(len(Thetas_ODE) * 5, 25))
     ## Run optimisation
-    x_visited = []
-    x_guessed = []
-    x_best = []
+    theta_visited = []
+    theta_guessed = []
+    f_guessed = []
+    theta_best = []
     f_best = []
     InnerCosts_all = []
     OuterCosts_all = []
@@ -312,7 +380,7 @@ if __name__ == '__main__':
         for theta in thetas:
             # assign the variable that is readable in the class of B-spline evaluation
             Thetas_ODE = theta.copy()
-            # fit the b-spline surface given the sampled value of ODE parameter vector
+            # fit the b-spline surface given the sampled value of the ODE parameter vector
             # introduce an optimiser every time beacause it does not understand why thre is already an instance of the optimier
             optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
                                                            method=pints.CMAES)
@@ -325,40 +393,45 @@ if __name__ == '__main__':
             # evaluate the cost function at the sampled value of ODE parameter vector
             InnerCosts.append(InnerCost)
             OuterCosts.append(error_outer(theta))
-            del Thetas_ODE # bin this variable to make sure it is not updates somewhere else
+            del Thetas_ODE  # make sure this is updated
         # feed the evaluated scores into the optimisation object
         optimiser_outer.tell(OuterCosts)
         toc = tm.time()
-        print(str(i) + '-th iteration finished. Elapsed time: ' + str(toc-tic) + 's')
+        print(str(i) + '-th iteration finished. Elapsed time: ' + str(toc - tic) + 's')
         # store all costs in the lists
         InnerCosts_all.append(InnerCosts)
         OuterCosts_all.append(OuterCosts)
         # HOW DO I CHECK CONVERGENCE HERE - for all points of average cost???
         # Store the requested points
-        x_visited.extend(thetas)
+        theta_visited.extend(thetas)
         # Store the current guess
-        x_guessed.append(np.mean(thetas, axis=0))
+        theta_g = np.mean(thetas, axis=0)
+        theta_guessed.append(theta_g)
+        f_guessed.append(error_outer(theta_g))
         # Store the accompanying score
         # Store the best position and score seen so far
-        x_best.append(optimiser_outer._xbest)
-        f_best.append(optimiser_outer._fbest)
+        index_best = OuterCosts.index(min(OuterCosts))
+        theta_best.append(thetas[index_best, :])
+        f_best.append(OuterCosts[index_best])
         # the most basic convergence condition after running first fifty
-        if (iter >50):
+        if (i > iter_for_convergence):
             # check how the cost increment changed over the last 10 iterations
-            d_cost = np.diff(f_best[-10:])
+            d_cost = np.diff(f_best[-iter_for_convergence:])
             # if all incrementa are below a threshold break the loop
-            if all(d<=convergence_threshold for d in d_cost):
+            if all(d <= convergence_threshold for d in d_cost):
+                print("No changes in" + str(iter_for_convergence) + "iterations. Terminating")
                 break
     # convert lists into arrays
-    x_visited = np.array(x_visited)
-    x_guessed = np.array(x_guessed)
-    x_best = np.array(x_best)
+    theta_visited = np.array(theta_visited)
+    theta_guessed = np.array(theta_guessed)
+    theta_best = np.array(theta_best)
     f_best = np.array(f_best)
+    f_guessed = np.array(f_guessed)
     big_toc = tm.time()
-    print('Optimisation finished. Elapsed time: ' + str(big_toc-big_tic) + 's')
+    print('Optimisation finished. Elapsed time: ' + str(big_toc - big_tic) + 's')
     ####################################################################################################################
     # try saving the results
-    results_to_save = [InnerCosts_all,OuterCosts_all,x_best,f_best,x_visited,x_guessed]
+    results_to_save = [InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best]
     with open("ask_tell_iterations.pkl", "wb") as output_file:
         pkl.dump(results_to_save, output_file)
     ####################################################################################################################
@@ -391,15 +464,15 @@ if __name__ == '__main__':
 
     # plot parameter values
     fig, axes = plt.subplots(3, 3, figsize=(20, 8), sharex=True)
-    n_walkers = int(x_visited.shape[0] / len(x_best))
+    n_walkers = int(theta_visited.shape[0] / len(theta_best))
     for iAx, ax in enumerate(axes.flatten()):
-        for iter in range(len(x_best)):
-            x_visited_iter = x_visited[iter * n_walkers:(iter + 1) * n_walkers, iAx]
+        for iter in range(len(theta_best)):
+            x_visited_iter = theta_visited[iter * n_walkers:(iter + 1) * n_walkers, iAx]
             ax.scatter(iter * np.ones(len(x_visited_iter)), x_visited_iter, c='k', marker='.', alpha=.2,
                        linewidth=0)
         ax.plot(range(iter), np.ones(iter) * p_true[iAx], '-m', linewidth=2.5, alpha=.5, label='true')
-        ax.plot(x_guessed[:, iAx], '--r', linewidth=1.5, label='guessed')
-        ax.plot(x_best[:, iAx], '-b', linewidth=1.5, label='best')
+        ax.plot(theta_guessed[:, iAx], '--r', linewidth=1.5, label='guessed')
+        ax.plot(theta_best[:, iAx], '-b', linewidth=1.5, label='best')
         ax.set_ylabel('$p_{' + str(iAx) + '}$')
     ax.legend(loc='best')
     plt.tight_layout()
@@ -407,7 +480,7 @@ if __name__ == '__main__':
 
     # plot model output
     current_true = observation(times_roi, x_ar, p_true)
-    Thetas_ODE = x_best[-1, :]
+    Thetas_ODE = theta_best[-1, :]
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
                                                    method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)

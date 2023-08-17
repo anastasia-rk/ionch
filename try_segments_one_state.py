@@ -1,0 +1,391 @@
+# imports
+import matplotlib.pyplot as plt
+
+from setup import *
+import pints
+import pickle as pkl
+matplotlib.use('AGG')
+plt.ioff()
+
+# definitions
+def ion_channel_model(t, x, theta):
+    a, r = x[:2]
+    *p, g = theta[:9]
+    v = V(t)
+    k1 = p[0] * np.exp(p[1] * v)
+    k2 = p[2] * np.exp(-p[3] * v)
+    k3 = p[4] * np.exp(p[5] * v)
+    k4 = p[6] * np.exp(-p[7] * v)
+    a_inf = k1 / (k1 + k2)
+    tau_a = 1 / (k1 + k2)
+    r_inf = k4 / (k3 + k4)
+    tau_r = 1 / (k3 + k4)
+    da = (a_inf - a) / tau_a
+    dr = (r_inf - r) / tau_r
+    return [da,dr]
+
+def observation(t, x, theta):
+    # I
+    a, r = x[:2]
+    *ps, g = theta[:9]
+    return g * a * r * (V(t) - EK)
+# get Voltage for time in ms
+def V(t):
+    return volts_intepolated((t)/ 1000)
+
+def almost_block_diag(arrs):
+    # this function creates an almost diagonal matrix that accomodates 1 dt overlap where segments join
+    # number of rows is the same for each segment
+    rr = len(arrs[0])
+    # create matrix of zeros
+    out = np.zeros([rr*len(arrs), len(times)])
+    #  counters
+    r = 0
+    c = 0
+    for i in range(len(arrs)):
+        # number of columns will be different beacuse they correspond to time
+        cc = len(arrs[i][0])
+        # populate matrix with block
+        out[r:r + rr, c:c + cc] = arrs[i]
+        r+=rr
+        c+=cc-1
+    return out
+
+def ion_channel_model_one_state(t, x, theta):
+    # call the model with a smaller number of unknown parameters and one state known
+    r = x
+    v = V(t)
+    k3 =  np.exp(theta[0] + 8.91e-3 * v)
+    k4 =  np.exp(theta[1] - 0.03158 * v)
+    r_inf = k4 / (k3 + k4)
+    tau_r = 1 / (k3 + k4)
+    dr = (r_inf - r) / tau_r
+    return dr
+
+# from stack  exchange https://stackoverflow.com/questions/18386210/annotating-ranges-of-data
+def draw_brace(ax, xspan, yy, text):
+    """Draws an annotated brace on the axes."""
+    xmin, xmax = xspan
+    xspan = xmax - xmin
+    ax_xmin, ax_xmax = ax.get_xlim()
+    xax_span = ax_xmax - ax_xmin
+
+    ymin, ymax = ax.get_ylim()
+    yspan = ymax - ymin
+    resolution = int(xspan/xax_span*1000)*2+1 # guaranteed uneven
+    beta = 100./xax_span # the higher this is, the smaller the radius
+
+    x = np.linspace(xmin, xmax, resolution)
+    x_half = x[:int(resolution/2)+1]
+    y_half_brace = (1/(1.+np.exp(-beta*(x_half-x_half[0])))
+                    + 1/(1.+np.exp(-beta*(x_half-x_half[-1]))))
+    y = np.concatenate((y_half_brace, y_half_brace[-2::-1]))
+    y = yy + (.05*y - .01)*yspan # adjust vertical position
+
+    ax.autoscale(False)
+    ax.plot(x, y, color='black', lw=1)
+
+    ax.text((xmax+xmin)/2., yy+.07*yspan, text, ha='center', va='bottom')
+
+def optimise_segment(roi,input_roi,output_roi,support_roi, known_roi):
+    # define a class that outputs only b-spline surface features
+    class bsplineOutput(pints.ForwardModel):
+        # this model outputs the discrepancy to be used in a rectangle quadrature scheme
+        def simulate(self, parameters, times):
+            # given times and return the simulated values
+            tck = (support_roi, parameters, degree)
+            dot_ = sp.interpolate.splev(times, tck, der=1)
+            fun_ = sp.interpolate.splev(times, tck, der=0)
+            # the RHS must be put into an array
+            rhs = ion_channel_model_one_state(times, fun_, Thetas_ODE)
+            return np.array([fun_, dot_, rhs]).T
+
+        def n_parameters(self):
+            # Return the dimension of the parameter vector
+            return nBsplineCoeffs
+
+        def n_outputs(self):
+            # Return the dimension of the output vector
+            return nOutputs
+    # define a class that outputs only b-spline surface features
+    model_bsplines = bsplineOutput()
+    init_betas = 0.5 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
+    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
+    values_to_match_output_dims = np.transpose(np.array([output_roi, input_roi, known_roi]))
+    problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
+    error_inner = InnerCriterion(problem=problem_inner)
+    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
+    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
+                                                   boundaries=boundaries_betas, method=pints.CMAES)
+    optimiser_inner.set_max_iterations(30000)
+    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-8)
+    optimiser_inner.set_parallel(False)
+    optimiser_inner.set_log_to_screen(False)
+    betas_roi, cost_roi = optimiser_inner.run()
+    return betas_roi, cost_roi
+
+# main
+if __name__ == '__main__':
+    #  load the voltage data:
+    volts = np.genfromtxt("./protocol-staircaseramp.csv", skip_header=1, dtype=float, delimiter=',')
+    #  check when the voltage jumps
+    # read the times and valued of voltage clamp
+    volt_times, volts = np.genfromtxt("./protocol-staircaseramp.csv", skip_header=1, dtype=float, delimiter=',').T
+    # interpolate with smaller time step (milliseconds)
+    volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
+
+    # tlim = [0, int(volt_times[-1]*1000)]
+    tlim = [0, 3600]
+    times = np.linspace(*tlim, tlim[-1])
+    volts_new = V(times)
+    ## Generate the synthetic data
+    # parameter values for the model
+    EK = -80
+    Thetas_ODE = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
+    thetas_true = [np.log(0.0873), np.log(5.15e-3)]
+    *ps, g = Thetas_ODE
+    # initialise and solve ODE
+    x0 = [0, 1]
+    # solve initial value problem
+    tlim[1]+=1 #solve for a slightly longer period
+    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[Thetas_ODE], dense_output=True,
+                                      method='LSODA', rtol=1e-8, atol=1e-8)
+
+    ################################################################################################################
+    ## B-spline representation setup
+    # set times of jumps and a B-spline knot sequence
+    nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
+    nPoints_between_closest = 8  # step between knots at the finest grid
+    nPoints_around_jump = 48  # the time period from jump on which we place medium grid
+    step_between_knots = 48  # this is the step between knots around the jump in the medium grid
+    nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values
+    ## find switchpoints
+    d2v_dt2 = np.diff(volts_new, n=2)
+    dv_dt = np.diff(volts_new)
+    der1_nonzero = np.abs(dv_dt) > 1e-6
+    der2_nonzero = np.abs(d2v_dt2) > 1e-6
+    switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
+    # ignore everything outside of the region of iterest
+    # get the times of all jumps
+    a = [0] + [i + 1 for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
+    # remove consecutive numbers from the list
+    b = []
+    for i in range(len(a)):
+        if len(b) == 0:  # if the list is empty, we add first item from 'a' (In our example, it'll be 2)
+            b.append(a[i])
+        else:
+            if a[i] > a[i - 1] + 1:  # for every value of a, we compare the last digit from list b
+                b.append(a[i])
+    jump_indeces = b.copy()
+    ## create multiple segments limited by time instances of jumps
+    times_roi = []
+    states_roi = []
+    current_roi = []
+    voltage_roi = []
+    knots_roi = []
+    collocation_roi = []
+    colderiv_roi = []
+    state_known_roi = []
+    for iJump, jump in enumerate(jump_indeces[:-1]):
+        # define a region of interest - we will need this to preserve the
+        # trajectories of states given the full clamp and initial position, while
+        ROI_start = jump
+        ROI_end = jump_indeces[iJump+1]+1 # add one to ensure that t_end equals to t_start of the following segment
+        ROI = times[ROI_start:ROI_end]
+        x_ar = solution.sol(ROI)
+        # get time points to compute the fit to ODE cost
+        times_roi.append(ROI)
+        # save states
+        state_known_roi.append(x_ar[0, :])  # assume that we know r
+        states_roi.append(x_ar[1, :])
+        # save current
+        current_roi.append(observation(ROI, x_ar, thetas_true))
+        # save voltage
+        voltage_roi.append(V(ROI))
+        ## add colloation points
+        abs_distance_lists = [[(num - index) for num in range(ROI_start,ROI_end)] for index in
+                              [ROI_start, ROI_end]]  # compute absolute distance between each time and time of jump
+        min_pos_distances = [min(filter(lambda x: x >= 0, lst)) for lst in zip(*abs_distance_lists)]
+        max_neg_distances = [max(filter(lambda x: x <= 0, lst)) for lst in zip(*abs_distance_lists)]
+        # create a knot sequence that has higher density of knots after each jump
+        knots_after_jump = [((x <= nPoints_closest) and (x % nPoints_between_closest == 0)) or (
+                    (nPoints_closest < x <= nPoints_around_jump) and (x % step_between_knots == 0)) for
+            x in min_pos_distances]  ##  ((x <= 2) and (x % 1 == 0)) or
+        # knots_before_jump = [((x >= -nPoints_closest) and (x % (nPoints_closest + 1) == 0)) for x in
+        #                      max_neg_distances]  # list on knots befor each jump - use this form if you don't want fine grid before the jump
+        knots_before_jump = [(x >= -1) for x in max_neg_distances]  # list on knots before each jump - add a fine grid
+        knots_jump = [a or b for a, b in zip(knots_after_jump, knots_before_jump)] # logical sum of mininal and maximal distances
+        # convert to numeric array again
+        knot_indeces = [i + ROI_start for i, x in enumerate(knots_jump) if x]
+        indeces_inner = knot_indeces.copy()
+        # add additional coarse grid of knots between two jumps:
+        for iKnot, timeKnot in enumerate(knot_indeces[:-1]):
+            # add coarse grid knots between jumps
+            if knot_indeces[iKnot + 1] - timeKnot > step_between_knots:
+                # create evenly spaced points and drop start and end - those are already in the grid
+                knots_between_jumps = np.rint(
+                    np.linspace(timeKnot, knot_indeces[iKnot + 1], num=nPoints_between_jumps + 2)[1:-1]).astype(int)
+                # add indeces to the list
+                indeces_inner = indeces_inner + list(knots_between_jumps)
+            # add copies of the closest points to the jump
+        indeces_inner.sort()  # sort list in ascending order - this is done inplace
+        degree = 3
+        # define the Boor points to
+        indeces_outer = [indeces_inner[0]]*3 + [indeces_inner[-1]]*3
+        boor_indeces = np.insert(indeces_outer, degree, indeces_inner)  # create knots for which we want to build splines
+        knots = times[boor_indeces]
+        # save knots for the segment - including additional points at the edges
+        knots_roi.append(knots)
+        # build the collocation matrix using the defined knot structure
+        coeffs = np.zeros(len(knots)-degree-1)  # number of splines will depend on the knot order
+        spl_ones = BSpline(knots, np.ones_like(coeffs), degree)
+        # spl_deriv = spl_ones.derivative(nu=1) # this is a definition of derivative - might come handy later for cost evaluation on the whole time-series
+        # spl_deriv.c[:] = 1. # change coefficients to ones to make sure we can get collocation differentiation matrix
+        # tau = np.arange(knots[0], knots[-1])
+        splinest = [None] * len(coeffs)
+        splineder = [None] * len(coeffs)# the grid of indtividual splines is required to generate a collocation matrix
+        for i in range(len(coeffs)):
+            coeffs[i] = 1.
+            splinest[i] = BSpline(knots, coeffs.copy(), degree,
+                                  extrapolate=False)  # create a spline that only has one non-zero coeff
+            splineder[i] = splinest[i].derivative(nu=1)
+            coeffs[i] = 0.
+        collocation_roi.append(collocm(splinest, ROI))
+        colderiv_roi.append(collocm(splineder, ROI))# create a collocation matrix for that interval
+    ##^ this loop stores the time intervals from which to draw collocation points and the data for piece-wise fitting
+    # ####################################################################################################################
+    # # evaluate full collocation matrix for the entire time-series - will be needed for outer optimisation
+    collocation_whole = almost_block_diag(collocation_roi)
+    colderiv_whole = almost_block_diag(colderiv_roi)
+    # fig, axes = plt.subplots(2,1,figsize=(16,8),sharex=True)
+    # for spline_values in collocation_whole:
+    #     axes[0].plot(times[:],spline_values,lw=0.5)
+    # for i in jump_indeces:
+    #     axes[0].axvline(x=times[i],color='black', ls='--', lw=0.5)
+    # axes[0].set_ylabel('r$\phi_i(t)$')
+    # for deriv_values in colderiv_whole:
+    #     axes[1].plot(times[:],deriv_values,lw=0.5)
+    # for i in jump_indeces:
+    #     axes[1].axvline(x=times[i],color='black', ls='--', lw=0.5)
+    # axes[1].set_ylabel('r$\dot{\phi}_i(t)$')
+    # axes[1].set_xlabel('t, ms')
+    # plt.tight_layout(pad=0.3)
+    # plt.savefig('Figures/check_collocation_matrices.png',dpi=400)
+    #
+    fig, axes = plt.subplots(2, 1, figsize=(16, 8), sharex=True)
+    for spline_values in collocation_whole:
+        axes[0].plot(times[:], spline_values, lw=1)
+    for i in jump_indeces[:-1]:
+        axes[0].axvline(x=times[i], color='black', ls='--', lw=1.5)
+        axes[0].axvline(x=times[i + nPoints_closest-1], color='purple', ls='--', lw=1)
+        axes[0].axvline(x=times[i + nPoints_around_jump-1], color='blue', ls='--', lw=1)
+    draw_brace(axes[0], (times[jump_indeces[1]], times[jump_indeces[1]+nPoints_closest-1]), 0.85, 'fine grid')
+    draw_brace(axes[0], (times[jump_indeces[1] + nPoints_closest - 1], times[jump_indeces[1] + nPoints_around_jump - 1]), 0.85, 'medium grid')
+    draw_brace(axes[0], (times[jump_indeces[1] + nPoints_around_jump - 1], times[jump_indeces[2]]), 0.85, 'coarse grid')
+    axes[0].set_ylabel('r$\phi_i(t)$')
+    axes[0].set_xlim(240, 480)
+    for deriv_values in colderiv_whole:
+        axes[1].plot(times[:], deriv_values, lw=1)
+    for i in jump_indeces[:-1]:
+        axes[1].axvline(x=times[i], color='black', ls='--', lw=1.5)
+        axes[1].axvline(x=times[i + nPoints_closest-1], color='purple', ls='--', lw=1)
+        axes[1].axvline(x=times[i + nPoints_around_jump-1], color='blue', ls='--', lw=1)
+    axes[1].set_ylabel('r$\dot{\phi}_i(t)$')
+    axes[1].set_xlabel('t, ms')
+    axes[1].set_xlim(240, 480)
+    plt.tight_layout(pad=0.3)
+    plt.savefig('Figures/zoom_on_segment.png', dpi=400)
+    ####################################################################################################################
+    ## define pints classes for optimisation
+    ## Classes to run optimisation in pints
+    lambd = 0.01
+    ## Classes to run optimisation in pints
+    Thetas_ODE = thetas_true.copy()
+    nBsplineCoeffs = len(coeffs)  # this to be used in params method of class ForwardModel
+    print('Number of B-spline coeffs: ' + str(nBsplineCoeffs))
+    nOutputs = 3
+    # define a class that outputs only b-spline surface features
+    class bsplineOutputTest(pints.ForwardModel):
+        # this model outputs the discrepancy to be used in a rectangle quadrature scheme
+        def simulate(self, parameters, knots, times):
+            # given times and return the simulated values
+            tck = (knots, parameters, degree)
+            dot_ = sp.interpolate.splev(times, tck, der=1)
+            fun_ = sp.interpolate.splev(times, tck, der=0)
+            # the RHS must be put into an array
+            rhs = ion_channel_model_one_state(times, fun_, Thetas_ODE)
+            return np.array([fun_,dot_,rhs]).T
+
+        def n_parameters(self):
+            # Return the dimension of the parameter vector
+            return nBsplineCoeffs
+
+        def n_outputs(self):
+            # Return the dimension of the output vector
+            return nOutputs
+
+    # define an error w.r.t B-spline parameters that assumes that it knows ODE parameters
+    class InnerCriterion(pints.ProblemErrorMeasure):
+        # do I need to redefine custom init or can just drop this part?
+        def __init__(self, problem, weights=None):
+            super(InnerCriterion, self).__init__(problem)
+            if weights is None:
+                weights = [1] * self._n_outputs
+            elif self._n_outputs != len(weights):
+                raise ValueError(
+                    'Number of weights must match number of problem outputs.')
+            # Check weights
+            self._weights = np.asarray([float(w) for w in weights])
+        # this function is the function of beta - bspline parameters
+        def __call__(self, betas):
+            # evaluate the integral at the value of B-spline coefficients
+            model_output = self._problem.evaluate(betas)   # the output of the model with be an array of size nTimes x nOutputs
+            x, x_dot, rhs = np.split(model_output, 3, axis=1) # we split the array into states, state derivs, and RHSs
+            # compute the data fit
+            d_y = g * x[:,0] * self._values[:,2] * (self._values[:,1] - EK) - self._values[:,0]
+            data_fit_cost = np.transpose(d_y) @ d_y
+            # compute the gradient matching cost
+            d_deriv = (x_dot[:] - rhs[:]) ** 2
+            integral_quad = sp.integrate.simpson(y=d_deriv, even='avg',axis=0)
+            gradient_match_cost = np.sum(integral_quad, axis=0)
+            # not the most elegant implementation because it just grabs global lambda
+            return data_fit_cost + lambd * gradient_match_cost
+    ####################################################################################################################
+    # try optimising several segments
+    all_betas = []
+    all_costs = []
+    for iSegment in range(2,4):
+        tic = tm.time()
+        segment = times_roi[iSegment]
+        input_segment = voltage_roi[iSegment]
+        output_segment = current_roi[iSegment]
+        support_segment = knots_roi[iSegment]
+        known_segment = state_known_roi[iSegment]
+        betas, cost = optimise_segment(segment,input_segment,output_segment,support_segment,known_segment)
+        all_betas.append(betas)
+        all_costs.append(cost)
+        toc = tm.time()
+        print('Iteration ' + str(iSegment) + ' is finished. Elapsed time: ' + str(toc-tic) + 's')
+        # check collocation solution against truth
+        model_bsplines = bsplineOutputTest()
+        model_output_fit_at_truth = model_bsplines.simulate(betas,knots_roi[iSegment], times_roi[iSegment])
+        state_at_truth, state_deriv_at_truth, rhs_truth = np.split(model_output_fit_at_truth, 3, axis=1)
+        current_model_at_truth = g * state_at_truth[:,0] * known_segment[:] * (voltage_roi[iSegment] - EK)
+        fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
+        y_labels = ['I', '$\dot{r}$', '$r$']
+        axes[0].plot(segment, output_segment, '-k', label=r'Current true', linewidth=2, alpha=0.7)
+        axes[0].plot(segment, current_model_at_truth, '--b', label=r'Optimised given true $\theta$')
+        axes[1].plot(segment, rhs_truth, '-m', label=r'$\dot{r}$ given true $\theta$', linewidth=2, alpha=0.7)
+        axes[1].plot(segment, state_deriv_at_truth, '--b', label=r'B-spline derivative given true $\theta$')
+        axes[2].plot(segment, states_roi[iSegment], '-k', label=r'$r$ true', linewidth=2, alpha=0.7)
+        axes[2].plot(segment, state_at_truth, '--b', label=r'B-spline approximation given true $\theta$')
+        for iAx, ax in enumerate(axes.flatten()):
+            # ax.set_xlim([3380,3420])
+            ax.set_ylabel(y_labels[iAx], fontsize=12)
+            ax.legend(fontsize=12, loc='upper left')
+        ax.set_xlabel('time,ms', fontsize=12)
+        plt.savefig('Figures/cost_terms_at_truth_segment_'+ str(iSegment) + '.png', dpi=400)
+
+
+    # pause
+    print('pause here')

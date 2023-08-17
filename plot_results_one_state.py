@@ -69,7 +69,6 @@ def observation(t, x, theta):
 def V(t):
     return volts_intepolated((t)/ 1000)
 
-# main
 if __name__ == '__main__':
     #  load the voltage data:
     volts = np.genfromtxt("./protocol-staircaseramp.csv", skip_header=1, dtype=float, delimiter=',')
@@ -111,16 +110,6 @@ if __name__ == '__main__':
     x_ar = solution.sol(times_roi)
     current_true = observation(times_roi, x_ar, p_true)
 
-    # run only a ODE
-    # theta_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462]
-    # a0 = [0]
-    # solution_a = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True, method='LSODA',
-    #                                   rtol=1e-8, atol=1e-8)
-    # state_hidden_true = solution_a.sol(times_roi)
-    # state_known = x_ar[1,:] # assume that we know r
-
-    # use r as unknown state
-    # theta_true = [0.0873, 5.15e-3]
     theta_true = [np.log(0.0873), np.log(5.15e-3)]
     r0 = [1]
     solution_r = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
@@ -129,7 +118,6 @@ if __name__ == '__main__':
     state_hidden_true = solution_r.sol(times_roi)
     state_hidden_true1 = x_ar[1, :]
     state_known = x_ar[0, :]  # assume that we know r
-
     ####################################################################################################################
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
@@ -140,7 +128,8 @@ if __name__ == '__main__':
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values
 
     # get the times of all jumps
-    a = [0] + [i+1 for i, x in enumerate(switchpoints_roi) if x] + [len(ROI)]  # get indeces of all the switchpoints, add t0 and tend
+    a = [0] + [i + 1 for i, x in enumerate(switchpoints_roi) if x] + [
+        len(ROI)]  # get indeces of all the switchpoints, add t0 and tend
     # remove consecutive numbers from the list
     b = []
     for i in range(len(a)):
@@ -158,7 +147,8 @@ if __name__ == '__main__':
     min_pos_distances[:first_jump_index] = [np.inf] * len(min_pos_distances[:first_jump_index])
     last_jump_index = np.where(np.array(max_neg_distances) == 0)[0][-2]
     max_neg_distances[last_jump_index:] = [-np.inf] * len(max_neg_distances[last_jump_index:])
-    knots_after_jump = [((x <= 2) and (x % 1 == 0)) or ((x <= nPoints_closest) and (x % nPoints_between_closest == 0)) or (
+    knots_after_jump = [
+        ((x <= 2) and (x % 1 == 0)) or ((x <= nPoints_closest) and (x % nPoints_between_closest == 0)) or (
                 (nPoints_closest <= x <= nPoints_around_jump) and (x % step_between_knots == 0)) for
         x in min_pos_distances]  # create a knot sequence that has higher density of knots after each jump
     # close_knots_duplicates = [(x <= 1) for x in min_pos_distances]
@@ -176,7 +166,7 @@ if __name__ == '__main__':
     # add the final time point in case it is not already included - we need this if we are only adding values after steps
     if not np.isin(ROI_end, knot_times):
         knot_times.append(ROI_end)
-    knots_all = knot_times.copy() # + close_knots_duplicate_times.copy() # to see if having two splines tied to the close knots will improve precision
+    knots_all = knot_times.copy()  # + close_knots_duplicate_times.copy() # to see if having two splines tied to the close knots will improve precision
     for iKnot, timeKnot in enumerate(knot_times[:-1]):
         # add coarse grid knots between jumps
         if knot_times[iKnot + 1] - timeKnot > step_between_knots:
@@ -200,14 +190,17 @@ if __name__ == '__main__':
     for i in range(len(coeffs)):
         tau_current = np.arange(knots[i], knots[i + 4])
         coeffs[i] = 1
-        splinest[i] = BSpline(knots, coeffs.copy(), degree, extrapolate=False)  # create a spline that only has one non-zero coeff
+        splinest[i] = BSpline(knots, coeffs.copy(), degree,
+                              extrapolate=False)  # create a spline that only has one non-zero coeff
         coeffs[i] = 0
-    collocation = collocm(splinest, tau)  # create a collocation matrix for that interval
+    collocation = collocm(splinest, tau)
     ####################################################################################################################
     ## Classes to run optimisation in pints
     nBsplineCoeffs = len(coeffs)  # this to be used in params method of class ForwardModel
     print('Number of B-spline coeffs: ' + str(nBsplineCoeffs))
     nOutputs = 3
+
+
     # define a class that outputs only b-spline surface features
     class bsplineOutput(pints.ForwardModel):
         # this model outputs the discrepancy to be used in a rectangle quadrature scheme
@@ -218,7 +211,7 @@ if __name__ == '__main__':
             fun_ = sp.interpolate.splev(times, tck, der=0)
             # the RHS must be put into an array
             rhs = ion_channel_model_one_state(times, fun_, Thetas_ODE)
-            return np.array([fun_,dot_,rhs]).T
+            return np.array([fun_, dot_, rhs]).T
 
         def n_parameters(self):
             # Return the dimension of the parameter vector
@@ -227,6 +220,7 @@ if __name__ == '__main__':
         def n_outputs(self):
             # Return the dimension of the output vector
             return nOutputs
+
 
     # define an error w.r.t B-spline parameters that assumes that it knows ODE parameters
     class InnerCriterion(pints.ProblemErrorMeasure):
@@ -240,24 +234,30 @@ if __name__ == '__main__':
                     'Number of weights must match number of problem outputs.')
             # Check weights
             self._weights = np.asarray([float(w) for w in weights])
+
         # this function is the function of beta - bspline parameters
         def __call__(self, betas):
             # evaluate the integral at the value of B-spline coefficients
-            model_output = self._problem.evaluate(betas)   # the output of the model with be an array of size nTimes x nOutputs
-            x, x_dot, rhs = np.split(model_output, 3, axis=1) # we split the array into states, state derivs, and RHSs
+            model_output = self._problem.evaluate(
+                betas)  # the output of the model with be an array of size nTimes x nOutputs
+            x, x_dot, rhs = np.split(model_output, 3, axis=1)  # we split the array into states, state derivs, and RHSs
             # compute the data fit
-            volts_for_model = self._values[:,1] # we need to make sure that voltage is read at the times within ROI so we pass it in as part of values
-            d_y = g * x[:,0] * self._values[:,2] * (volts_for_model - EK) - self._values[:,0]
+            volts_for_model = self._values[:,
+                              1]  # we need to make sure that voltage is read at the times within ROI so we pass it in as part of values
+            d_y = g * x[:, 0] * self._values[:, 2] * (volts_for_model - EK) - self._values[:, 0]
             data_fit_cost = np.transpose(d_y) @ d_y
             # compute the gradient matching cost
             d_deriv = (x_dot[:] - rhs[:]) ** 2
-            integral_quad = sp.integrate.simpson(y=d_deriv, even='avg',axis=0)
+            integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
             gradient_match_cost = np.sum(integral_quad, axis=0)
             # not the most elegant implementation because it just grabs global lambda
             return data_fit_cost + lambd * gradient_match_cost
 
+
     # define a class that outputs only b-spline surface features
     nThetas = len(theta_true)
+
+
     class ODEOutput(pints.ForwardModel):
         # this model outputs the discrepancy to be used in a rectangle quadrature scheme
         def simulate(self, parameters, times):
@@ -266,7 +266,7 @@ if __name__ == '__main__':
             tck = (knots, coeffs, degree)
             fun_ = sp.interpolate.splev(times, tck, der=0)
             dot_ = sp.interpolate.splev(times, tck, der=1)
-            return np.array([fun_,dot_]).T
+            return np.array([fun_, dot_]).T
 
         def n_parameters(self):
             # Return the dimension of the parameter vector
@@ -275,6 +275,7 @@ if __name__ == '__main__':
         def n_outputs(self):
             # Return the dimension of the output vector
             return 2
+
 
     # define an error w.r.t ODE parameters that assumes that it knows B-spline parameters - simply data fit
     class OuterCriterion(pints.ProblemErrorMeasure):
@@ -288,38 +289,42 @@ if __name__ == '__main__':
                     'Number of weights must match number of problem outputs.')
             # Check weights
             self._weights = np.asarray([float(w) for w in weights])
+
         # this function is the function of theta - ODE parameters
         def __call__(self, thetas):
             # evaluate the integral at the value of ODE parameters
-            model_output = self._problem.evaluate(thetas)   # the output of the model with be an array of size nTimes x nOutputs
+            model_output = self._problem.evaluate(
+                thetas)  # the output of the model with be an array of size nTimes x nOutputs
             x, x_dot = np.split(model_output, 2, axis=1)
             # compute the data fit
-            d_y = g * x[:,0] * state_known * (self._values[:,1] - EK) - self._values[:,0] # this part depends on theta_g
+            d_y = g * x[:, 0] * state_known * (self._values[:, 1] - EK) - self._values[:,
+                                                                          0]  # this part depends on theta_g
             data_fit_cost = np.transpose(d_y) @ d_y
             return data_fit_cost
     ####################################################################################################################
+    ####################################################################################################################
     ## Create objects for the optimisation
-    lambd = 1 # 0.3 # 0 # 1
+    lambd = 1  # 0.3 # 0 # 1
     ## theta in decimal scale
     # init_thetas = 0.001 * np.ones(nThetas)
     # sigma0_thetas = 0.0005 * np.ones(nThetas)
     # theta in log scale
     init_thetas = -4 * np.ones(nThetas)
     sigma0_thetas = 1 * np.ones(nThetas)
-    init_betas = 0.5 * np.ones(nBsplineCoeffs) # initial values of B-spline coefficients
+    init_betas = 0.5 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
     sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
     tic = tm.time()
     model_bsplines = bsplineOutput()
     model_ode = ODEOutput()
     ## create the problem of comparing the modelled current with measured current
-    voltage = V(times_roi) # must read voltage at the correct times to match the output
+    voltage = V(times_roi)  # must read voltage at the correct times to match the output
     values_to_match_output_dims = np.transpose(np.array([current_true, voltage, state_known]))
     values_to_match_output_ode = np.transpose(np.array([current_true, voltage]))
-    #^ we actually only need first two columns in this array but pints wants to have the same number of values and outputs
+    # ^ we actually only need first two columns in this array but pints wants to have the same number of values and outputs
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=times_roi, values=values_to_match_output_dims)
     problem_outer = pints.MultiOutputProblem(model=model_ode, times=times_roi, values=values_to_match_output_ode)
     ## associate the cost with it
-    error_inner  = InnerCriterion(problem=problem_inner)
+    error_inner = InnerCriterion(problem=problem_inner)
     error_outer = OuterCriterion(problem=problem_outer)
     ##  define boundaries for the inner optimisation
     boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), np.ones_like(init_betas))
@@ -327,7 +332,12 @@ if __name__ == '__main__':
     # # decimal scale
     # boundaries_thetas = pints.RectangularBoundaries(np.zeros_like(init_thetas), np.ones_like(init_thetas))
     # log scale
-    boundaries_thetas = pints.RectangularBoundaries(-6*np.ones_like(init_thetas), -1*np.ones_like(init_thetas))
+    boundaries_thetas = pints.RectangularBoundaries(-6 * np.ones_like(init_thetas), -1 * np.ones_like(init_thetas))
+    ####################################################################################################################
+    # read results from file
+    with open("ask_tell_simple_problem_iterations.pkl", "rb") as input_file:
+        results_of_optimisation = pkl.load(input_file)
+    InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best = results_of_optimisation
     ####################################################################################################################
     # fit B-spline coefficients to the hidden state directly
     coeffs_ls = np.dot((np.dot(np.linalg.pinv(np.dot(collocation, collocation.T)), collocation)), state_hidden_true.T)
@@ -373,173 +383,6 @@ if __name__ == '__main__':
     # plt.ioff()
     plt.savefig('Figures/cost_terms_at_truth_one_state.png',dpi=600)
     ####################################################################################################################
-    ## compute the costs for the parameters
-    sigma = 1.5
-    from itertools import combinations
-    keys = ['theta_{'+str(index)+'}' for index in np.arange(len(theta_true))]
-    explore_costs = dict.fromkeys(keys)
-    key_counter = 0
-    for iTheta,theta in enumerate(theta_true):
-        print('iTheta = ' + str(iTheta) + ', theta = ' + str(theta))
-        Thetas_ODE = theta_true.copy()
-        range_theta = np.linspace(theta - 3*sigma, theta + 3*sigma, 101)
-        inner_cost_plot = []
-        outer_cost_plot = []
-        for iSample, theta_changed in enumerate(range_theta):
-            Thetas_ODE[iTheta] = theta_changed.copy()
-            # solve ODE
-            tic = tm.time()
-            optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
-                                                           boundaries=boundaries_betas, method=pints.CMAES)
-            optimiser_inner.set_max_iterations(30000)
-            optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-6)
-            optimiser_inner.set_parallel(False)
-            optimiser_inner.set_log_to_screen(False)
-            Betas_BSPL, InnerCost_given_theta = optimiser_inner.run()
-            # compute outer cost
-            OuterCost_given_theta = error_outer(Thetas_ODE)
-            toc = tm.time()
-            print(str(iSample) + '-th value checked. Elapsed time: ' + str(toc-tic) + 's.')
-            # store all cost values in lists for this particular parameter
-            inner_cost_plot.append(InnerCost_given_theta)
-            outer_cost_plot.append(OuterCost_given_theta)
-        explore_costs[keys[key_counter]] = [range_theta, inner_cost_plot, outer_cost_plot]
-        key_counter += 1
-    nColumns = len(keys)
-    fig, axes = plt.subplots(2,nColumns)
-    for iKey, key in enumerate(keys):
-        axes[0,iKey].semilogy(explore_costs[key][0],explore_costs[key][1],label='Inner cost')
-        axes[0,iKey].semilogy(theta_true[iKey], InnerCost_true, lw=0, color='blue', marker='s', label='Direct fit at truth')
-        axes[0,iKey].semilogy(theta_true[iKey], InnerCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
-        ind_min = np.argmin(explore_costs[key][1])
-        axes[0, iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][1][ind_min],lw=0, color='black', marker='.', label='Empirical min')
-        axes[0,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
-        axes[0,iKey].set_ylabel(r'$J(C \mid \theta_{' + str(iKey+1) + '} y)$')
-        axes[0,iKey].legend(loc='best')
-        axes[1,iKey].semilogy(explore_costs[key][0], explore_costs[key][2], label='Outer cost')
-        axes[1,iKey].semilogy(theta_true[iKey], OuterCost_true, lw=0, color='blue', marker='s', label='Direct fit at truth')
-        axes[1,iKey].semilogy(theta_true[iKey], OuterCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
-        ind_min = np.argmin(explore_costs[key][2])
-        axes[1,iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][2][ind_min],lw=0, color='black', marker='.', label='Empirical min')
-        axes[1,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
-        axes[1,iKey].set_ylabel(r'$G_{y}(\theta_{' + str(iKey+1) + '} \mid y)$')
-        axes[1,iKey].legend(loc='best')
-    plt.tight_layout(pad=0.3)
-    plt.savefig('Figures/costs_projection_semilogy.png',dpi=400)
-
-
-
-
-    #     get the diagonal ranges for all pairs of parameters using unique combinations
-    for iPair,pair in enumerate(combinations(range(len(theta_true)),2)):
-        Thetas_ODE = theta_true
-        range_theta = np.linspace(-8, 0, 101)
-        inner_cost_plot = []
-        outer_cost_plot = []
-        for iSample, theta_changed in enumerate(range_theta):
-            Thetas_ODE[pair[0]] = Thetas_ODE[pair[1]] = theta_changed.copy()
-            # solve ODE
-            tic = tm.time()
-            optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
-                                                           boundaries=boundaries_betas, method=pints.CMAES)
-            optimiser_inner.set_max_iterations(30000)
-            optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-6)
-            optimiser_inner.set_parallel(False)
-            optimiser_inner.set_log_to_screen(False)
-            Betas_BSPL, InnerCost_given_theta = optimiser_inner.run()
-            # copmute outer cost
-            OuterCost_given_theta = error_outer(Thetas_ODE)
-            toc = tm.time()
-            print(str(iSample) + '-th value checked. Elapsed time: ' + str(toc - tic) + 's.')
-            # store all cost values in lists for this particular parameter
-            inner_cost_plot.append(InnerCost_given_theta)
-            outer_cost_plot.append(OuterCost_given_theta)
-        explore_costs['theta_{'+str(pair[0])+'} = theta_{'+str(pair[1])+'}$'] = [range_theta, inner_cost_plot, outer_cost_plot]
-    # save the exploration results
-    with open("explored_parameter_space.pkl", "wb") as output_file:
-        pkl.dump(explore_costs, output_file)
-    ####################################################################################################################
-    # take 1: loosely based on ask-tell example from  pints
-    convergence_threshold = 1e-5
-    iter_for_convergence = 50
-    # Create an outer optimisation object
-    big_tic = tm.time()
-    optimiser_outer = pints.CMAES(x0=init_thetas,sigma0=sigma0_thetas, boundaries=boundaries_thetas)
-    optimiser_outer.set_population_size(min(len(Thetas_ODE)*7,25))
-    ## Run optimisation
-    theta_visited = []
-    theta_guessed = []
-    f_guessed = []
-    theta_best = []
-    f_best = []
-    InnerCosts_all = []
-    OuterCosts_all = []
-    for i in range(500):
-        # get the next points (multiple locations)
-        thetas = optimiser_outer.ask()
-        # create the placeholder for cost functions
-        OuterCosts = []
-        InnerCosts = []
-        # for each theta in the sample
-        tic = tm.time()
-        for theta in thetas:
-            # assign the variable that is readable in the class of B-spline evaluation
-            Thetas_ODE = theta.copy()
-            # fit the b-spline surface given the sampled value of the ODE parameter vector
-            # introduce an optimiser every time beacause it does not understand why thre is already an instance of the optimier
-            optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, boundaries=boundaries_betas,
-                                                           method=pints.CMAES)
-            optimiser_inner.set_max_iterations(30000)
-            optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-8)
-            optimiser_inner.set_parallel(False)
-            optimiser_inner.set_log_to_screen(False)
-            Betas_BSPL, InnerCost = optimiser_inner.run()
-            # init_betas = Betas_BSPL # update the init conds for the next itimiser instance
-            # evaluate the cost function at the sampled value of ODE parameter vector
-            InnerCosts.append(InnerCost)
-            OuterCosts.append(error_outer(theta))
-            del Thetas_ODE # make sure this is updated
-        # feed the evaluated scores into the optimisation object
-        optimiser_outer.tell(OuterCosts)
-        toc = tm.time()
-        print(str(i) + '-th iteration finished. Elapsed time: ' + str(toc-tic) + 's')
-        # store all costs in the lists
-        InnerCosts_all.append(InnerCosts)
-        OuterCosts_all.append(OuterCosts)
-        # HOW DO I CHECK CONVERGENCE HERE - for all points of average cost???
-        # Store the requested points
-        theta_visited.extend(thetas)
-        # Store the current guess
-        theta_g =np.mean(thetas, axis=0)
-        theta_guessed.append(theta_g)
-        f_guessed.append(error_outer(theta_g))
-        # Store the accompanying score
-        # Store the best position and score seen so far
-        index_best = OuterCosts.index(min(OuterCosts))
-        theta_best.append(thetas[index_best,:])
-        f_best.append(OuterCosts[index_best])
-        # the most basic convergence condition after running first fifty
-        if (i > iter_for_convergence):
-            # check how the cost increment changed over the last 10 iterations
-            d_cost = np.diff(f_best[-iter_for_convergence:])
-            # if all incrementa are below a threshold break the loop
-            if all(d<=convergence_threshold for d in d_cost):
-                print("No changes in" + str(iter_for_convergence) + "iterations. Terminating")
-                break
-    # convert lists into arrays
-    theta_visited = np.array(theta_visited)
-    theta_guessed = np.array(theta_guessed)
-    theta_best = np.array(theta_best)
-    f_best = np.array(f_best)
-    f_guessed = np.array(f_guessed)
-    big_toc = tm.time()
-    print('Optimisation finished. Elapsed time: ' + str(big_toc-big_tic) + 's')
-    ####################################################################################################################
-    # try saving the results
-    results_to_save = [InnerCosts_all,OuterCosts_all,theta_visited,theta_guessed,theta_best,f_guessed,f_best]
-    with open("ask_tell_simple_problem_iterations.pkl", "wb") as output_file:
-        pkl.dump(results_to_save, output_file)
-    ####################################################################################################################
     # plot evolution of outer costs
     plt.figure(figsize=(10, 6))
     plt.semilogy()
@@ -575,20 +418,20 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig('Figures/outer_cost_ask_tell_one_state.png',dpi=400)
 
-    # plot parameter values after search was done on decimal scale
-    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-    n_walkers = int(theta_visited.shape[0] / len(theta_best))
-    for iAx, ax in enumerate(axes.flatten()):
-        for iter in range(len(theta_best)):
-            x_visited_iter = theta_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
-            ax.scatter(iter*np.ones(len(x_visited_iter)),x_visited_iter,c='k',marker='.',alpha=.2,linewidth=0)
-        ax.plot(range(iter+1),np.ones(iter+1)*theta_true[iAx], '-m', linewidth=2.5,alpha=.5, label=r"true: $\theta_{"+str(iAx)+"} = $" +"{:.4f}".format(theta_true[iAx]))
-        ax.plot(theta_guessed[:,iAx],'--r',linewidth=1.5,label=r"guessed: $\theta_{"+str(iAx+1)+"} = $" +"{:.4f}".format(theta_guessed[-1,iAx]))
-        ax.plot(theta_best[:,iAx],'-b',linewidth=1.5,label=r"best: $\theta_{"+str(iAx+1)+"} = $" +"{:.4f}".format(theta_best[-1,iAx]))
-        ax.set_ylabel(r'$\theta_{'+str(iAx+1)+'}$')
-        ax.legend(loc='best')
-    plt.tight_layout()
-    plt.savefig('Figures/ODE_params_one_state.png',dpi=400)
+    # # plot parameter values after search was done on decimal scale
+    # fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    # n_walkers = int(theta_visited.shape[0] / len(theta_best))
+    # for iAx, ax in enumerate(axes.flatten()):
+    #     for iter in range(len(theta_best)):
+    #         x_visited_iter = theta_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
+    #         ax.scatter(iter*np.ones(len(x_visited_iter)),x_visited_iter,c='k',marker='.',alpha=.2,linewidth=0)
+    #     ax.plot(range(iter+1),np.ones(iter+1)*theta_true[iAx], '-m', linewidth=2.5,alpha=.5, label=r"true: $\theta_{"+str(iAx)+"} = $" +"{:.4f}".format(theta_true[iAx]))
+    #     ax.plot(theta_guessed[:,iAx],'--r',linewidth=1.5,label=r"guessed: $\theta_{"+str(iAx+1)+"} = $" +"{:.4f}".format(theta_guessed[-1,iAx]))
+    #     ax.plot(theta_best[:,iAx],'-b',linewidth=1.5,label=r"best: $\theta_{"+str(iAx+1)+"} = $" +"{:.4f}".format(theta_best[-1,iAx]))
+    #     ax.set_ylabel(r'$\theta_{'+str(iAx+1)+'}$')
+    #     ax.legend(loc='best')
+    # plt.tight_layout()
+    # plt.savefig('Figures/ODE_params_one_scale_decimal.png',dpi=400)
 
     # plot parameter values converting from log scale to decimal
     fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
@@ -598,6 +441,8 @@ if __name__ == '__main__':
             x_visited_iter = theta_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
             ax.scatter(iter*np.ones(len(x_visited_iter)),np.exp(x_visited_iter),c='k',marker='.',alpha=.2,linewidth=0)
         ax.plot(range(iter+1),np.ones(iter+1)*np.exp(theta_true[iAx]), '-m', linewidth=2.5,alpha=.5, label="true: $a_{"+str(iAx)+"} = $" +"{:.4f}".format(np.exp(theta_true[iAx])))
+        # label_truth = "$a_{"+str(iAx)+"} = $" +"{:.4f}".format(np.exp(theta_true[iAx]))
+        # ax.annotate(label_truth, (iter-2, 0.975*np.exp(theta_true[iAx])), textcoords="offset points", xytext=(0, 10), ha="center")
         ax.plot(np.exp(theta_guessed[:,iAx]),'--r',linewidth=1.5,label="guessed: $a_{"+str(iAx+1)+"} = $" +"{:.4f}".format(np.exp(theta_guessed[-1,iAx])))
         ax.plot(np.exp(theta_best[:,iAx]),'-b',linewidth=1.5,label="best: $a_{"+str(iAx+1)+"} = $" +"{:.4f}".format(np.exp(theta_best[-1,iAx])))
         ax.set_ylabel('$a_{'+str(iAx+1)+'}$')
@@ -606,7 +451,6 @@ if __name__ == '__main__':
     ax.set_ylabel('Iteration')
     plt.tight_layout()
     plt.savefig('Figures/ODE_params_one_state_log_scale.png',dpi=400)
-
 
     # plot model output
     current_true = observation(times_roi, x_ar, p_true)
@@ -640,4 +484,33 @@ if __name__ == '__main__':
     # plt.ioff()
     plt.savefig('Figures/cost_terms_ask_tell_one_state.png',dpi=400)
     ####################################################################################################################
-    print('pause here')
+    # plot evolution of costs for the parameters
+    with open("explored_parameter_space.pkl", "rb") as input_file:
+        explore_costs  = pkl.load(input_file)
+
+    # plot cost projections
+    nColumns = len(theta_true)
+    keys = ['theta_{' + str(index) + '}' for index in np.arange(len(theta_true))]
+    fig, axes = plt.subplots(2,nColumns, figsize=(12,8))
+    for iKey, key in enumerate(keys):
+        axes[0,iKey].semilogy(explore_costs[key][0],explore_costs[key][1],label='Inner cost')
+        axes[0,iKey].semilogy(theta_true[iKey], InnerCost_true, lw=0, color='blue', marker='s', label='Direct fit at truth')
+        axes[0,iKey].semilogy(theta_true[iKey], InnerCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
+        ind_min = np.argmin(explore_costs[key][1])
+        axes[0, iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][1][ind_min],lw=0, color='black', marker='.', label='Empirical min')
+        axes[0,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
+        axes[0,iKey].set_ylabel(r'$H(C \mid \theta_{' + str(iKey+1) + r'}, \bar{\mathbf{y}})$')
+        axes[0,iKey].legend(loc='best')
+        axes[1,iKey].semilogy(explore_costs[key][0], explore_costs[key][2], label='Outer cost')
+        axes[1,iKey].semilogy(theta_true[iKey], OuterCost_true, lw=0, color='blue', marker='s', label='Direct fit at truth')
+        axes[1,iKey].semilogy(theta_true[iKey], OuterCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
+        ind_min = np.argmin(explore_costs[key][2])
+        axes[1,iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][2][ind_min],lw=0, color='black', marker='.', label='Empirical min')
+        axes[1,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
+        axes[1,iKey].set_ylabel(r'$J(\theta_{' + str(iKey+1) + r'} \mid \bar{\mathbf{y}})$')
+        axes[1,iKey].legend(loc='best')
+    plt.tight_layout(pad=0.3)
+    plt.savefig('Figures/costs_projection_semilogy.png',dpi=400)
+
+    ####################################################################################################################
+    print('pause')

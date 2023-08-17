@@ -56,7 +56,7 @@ if __name__ == '__main__':
 
 
     # tlim = [0, int(volt_times[-1]*1000)]
-    tlim = [0,4000]
+    tlim = [0,8000]
     times = np.linspace(*tlim, tlim[-1])
     # get time points to compute the fit to ODE cost
     times_q = times[[(it % 5 == 0) for it in range(len(times))]]
