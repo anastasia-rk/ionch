@@ -77,8 +77,16 @@ if __name__ == '__main__':
     volt_times, volts = np.genfromtxt("./protocol-staircaseramp.csv", skip_header=1, dtype=float, delimiter=',').T
     # interpolate with smaller time step (milliseconds)
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
+    ####################################################################################################################
+    ## read results from file
+    with open("ask_tell_simple_problem_iterations.pkl", "rb") as input_file:
+        results_of_optimisation, metadata = pkl.load(input_file)
+    InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best = results_of_optimisation
+    ### note the metadata structure
+    ### metadata = {'times': times_roi, 'lambda': lambd, 'state_name': state_name, 'state_true': state_hidden_true, 'state_known': state_known,
+    ###             'knots': knots, 'truth': theta_true, 'param_names': param_names, 'log_scaled': inLogScale}
 
-    # tlim = [0, int(volt_times[-1]*1000)]
+
     tlim = [0, 6100]
     times = np.linspace(*tlim, tlim[-1])
     # define a region of interest - we will need this to preserve the
@@ -110,14 +118,29 @@ if __name__ == '__main__':
     x_ar = solution.sol(times_roi)
     current_true = observation(times_roi, x_ar, p_true)
 
-    theta_true = [np.log(0.0873), np.log(5.15e-3)]
-    r0 = [1]
-    solution_r = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
+    # run only an ODE
+    theta_true = [np.log(2.26e-4), np.log(0.0699), np.log(3.45e-5), np.log(0.05462)]
+    param_names = ['p_1', 'p_2', 'p_3', 'p_4']
+    a0 = [0]
+    solution_a = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True,
                                         method='LSODA',
                                         rtol=1e-8, atol=1e-8)
-    state_hidden_true = solution_r.sol(times_roi)
-    state_hidden_true1 = x_ar[1, :]
-    state_known = x_ar[0, :]  # assume that we know r
+    state_hidden_true = solution_a.sol(times_roi)
+    state_known = x_ar[1, :]  # assume that we know r
+    state_name = 'a'
+
+    # use r as unknown state
+    # theta_true = [0.0873, 5.15e-3]
+    # theta_true = [np.log(0.0873), np.log(5.15e-3)]
+    # param_names = ['p_5','p_7']
+    # r0 = [1]
+    # solution_r = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
+    #                                     method='LSODA',
+    #                                     rtol=1e-8, atol=1e-8)
+    # state_hidden_true = solution_r.sol(times_roi)
+    # state_hidden_true1 = x_ar[1, :]
+    # state_known = x_ar[0, :]  # assume that we know r
+    # state_name = 'r'
     ####################################################################################################################
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
@@ -334,11 +357,6 @@ if __name__ == '__main__':
     # log scale
     boundaries_thetas = pints.RectangularBoundaries(-6 * np.ones_like(init_thetas), -1 * np.ones_like(init_thetas))
     ####################################################################################################################
-    # read results from file
-    with open("ask_tell_simple_problem_iterations.pkl", "rb") as input_file:
-        results_of_optimisation = pkl.load(input_file)
-    InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best = results_of_optimisation
-    ####################################################################################################################
     # fit B-spline coefficients to the hidden state directly
     coeffs_ls = np.dot((np.dot(np.linalg.pinv(np.dot(collocation, collocation.T)), collocation)), state_hidden_true.T)
     Betas_BSPL = coeffs_ls[:,0]
@@ -367,9 +385,9 @@ if __name__ == '__main__':
     axes[0].plot(times_roi,current_true, '-k', label=r'Current true',linewidth=2,alpha=0.7)
     axes[0].plot(times_roi,current_model_direct, '--r', label=r'Fit to state directly')
     axes[0].plot(times_roi, current_model_at_truth, '--b', label=r'Optimised given true $\theta$')
-    axes[1].plot(times_roi[:],rhs_direct[:], '-k', label='$\dot{r}$ fit directly',linewidth=2,alpha=0.7)
+    axes[1].plot(times_roi[:],rhs_direct[:], '-k', label='RHS fit directly',linewidth=2,alpha=0.7)
     axes[1].plot(times_roi[:],state_deriv_direct[:], '--r', label=r'B-spline derivative fit directly')
-    axes[1].plot(times_roi[:], rhs_truth[:], '-m', label=r'$\dot{r}$ given true $\theta$',linewidth=2,alpha=0.7)
+    axes[1].plot(times_roi[:], rhs_truth[:], '-m', label=r'RHS given true $\theta$',linewidth=2,alpha=0.7)
     axes[1].plot(times_roi[:], state_deriv_at_truth[:], '--b', label=r'B-spline derivative given true $\theta$')
     axes[2].plot(times_roi, state_hidden_true[0,:], '-k', label=r'$r$ true',linewidth=2,alpha=0.7)
     axes[2].plot(times_roi, state_direct[:, 0], '--r', label=r'B-spline approximation direct fit')
@@ -381,7 +399,7 @@ if __name__ == '__main__':
     ax.set_xlabel('time,ms', fontsize=12)
     plt.tight_layout(pad=0.3)
     # plt.ioff()
-    plt.savefig('Figures/cost_terms_at_truth_one_state.png',dpi=600)
+    plt.savefig('Figures/cost_terms_at_truth_one_state.png',dpi=400)
     ####################################################################################################################
     # plot evolution of outer costs
     plt.figure(figsize=(10, 6))
@@ -485,8 +503,8 @@ if __name__ == '__main__':
     plt.savefig('Figures/cost_terms_ask_tell_one_state.png',dpi=400)
     ####################################################################################################################
     # plot evolution of costs for the parameters
-    with open("explored_parameter_space.pkl", "rb") as input_file:
-        explore_costs  = pkl.load(input_file)
+    with open("explored_parameter_space_with_init_changing_"+state_name+".pkl", "rb") as input_file:
+        explore_costs, metadata  = pkl.load(input_file)
 
     # plot cost projections
     nColumns = len(theta_true)
@@ -498,7 +516,7 @@ if __name__ == '__main__':
         axes[0,iKey].semilogy(theta_true[iKey], InnerCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
         ind_min = np.argmin(explore_costs[key][1])
         axes[0, iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][1][ind_min],lw=0, color='black', marker='.', label='Empirical min')
-        axes[0,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
+        axes[0,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(' + param_names[iKey] +')$')
         axes[0,iKey].set_ylabel(r'$H(C \mid \theta_{' + str(iKey+1) + r'}, \bar{\mathbf{y}})$')
         axes[0,iKey].legend(loc='best')
         axes[1,iKey].semilogy(explore_costs[key][0], explore_costs[key][2], label='Outer cost')
@@ -506,11 +524,46 @@ if __name__ == '__main__':
         axes[1,iKey].semilogy(theta_true[iKey], OuterCost_given_true_theta,lw=0, color='magenta', marker='o', label='Collocation at truth')
         ind_min = np.argmin(explore_costs[key][2])
         axes[1,iKey].semilogy(explore_costs[key][0][ind_min], explore_costs[key][2][ind_min],lw=0, color='black', marker='.', label='Empirical min')
-        axes[1,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(a_{' + str(iKey+1) +'})$')
+        axes[1,iKey].set_xlabel(r'$\theta_{' + str(iKey+1) + '} = log(' + param_names[iKey] + ')$')
         axes[1,iKey].set_ylabel(r'$J(\theta_{' + str(iKey+1) + r'} \mid \bar{\mathbf{y}})$')
         axes[1,iKey].legend(loc='best')
     plt.tight_layout(pad=0.3)
     plt.savefig('Figures/costs_projection_semilogy.png',dpi=400)
 
+    # plot the B-spline fit at the spikes closest to the optimal value
+    for iKey, key in enumerate(keys):
+        # check for spikes in inner cost based on 1st derivative
+        check_for_spikes = np.diff(explore_costs[key][1],1) < -1.5
+        spike_indeces = [i for i,x in enumerate(check_for_spikes) if x ]
+        middle_index = len(check_for_spikes) // 2
+        closest_spike_index = min(spike_indeces, key=lambda x: abs(middle_index - x))
+        Thetas_ODE = theta_true.copy()
+        Thetas_ODE[iKey] = explore_costs[key][0][closest_spike_index]
+        optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
+                                                       boundaries=boundaries_betas, method=pints.CMAES)
+        optimiser_inner.set_max_iterations(30000)
+        optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-6)
+        optimiser_inner.set_parallel(False)
+        optimiser_inner.set_log_to_screen(True)
+        Betas_BSPL, InnerCost_given_theta = optimiser_inner.run()
+        model_output = model_bsplines.simulate(Betas_BSPL, times_roi)
+        state, state_deriv, rhs = np.split(model_output, 3, axis=1)
+        *ps, g = p_true[:9]
+        current_model = g * state[:, 0] * state_known * (voltage - EK)
+        fig, axes = plt.subplots(3, 1, figsize=(14, 9), sharex=True)
+        y_labels = ['I', '$\dot{r}$', '$r$']
+        axes[0].plot(times_roi, current_true, '-k', label='Current true')
+        axes[0].plot(times_roi, current_model, '--r', label='Model output')
+        axes[1].plot(times_roi, rhs, '-k', label='RHS at collocation solution')
+        axes[1].plot(times_roi, state_deriv, '--r', label='B-spline derivative')
+        axes[2].plot(times_roi, state_hidden_true[0,:], '-k', label='$r$ true')
+        axes[2].plot(times_roi, state[:, 0], '--r', label='Collocation solution')
+        for iAx, ax in enumerate(axes.flatten()):
+            ax.legend(fontsize=12, loc='best')
+            ax.set_ylabel(y_labels[iAx], fontsize=12)
+        ax.set_xlabel('time,ms', fontsize=12)
+        plt.tight_layout(pad=0.3)
+        # plt.ioff()
+        plt.savefig('Figures/cost_terms_spike_at_theta_'+ str(iKey+1) + '.png', dpi=400)
     ####################################################################################################################
     print('pause')

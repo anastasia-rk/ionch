@@ -1,0 +1,283 @@
+/opt/anaconda3/envs/HodgkinHuxley/bin/python /Applications/PyCharm.app/Contents/plugins/python/helpers/pydev/pydevd.py --multiproc --qt-support=auto --client 127.0.0.1 --port 51942 --file /Users/anastasia/Documents/PyCharm/ionch/try_simple_model_ask_tell.py
+Connected to pydev debugger (build 212.5712.39)
+Number of B-spline coeffs: 56
+Minimising error measure
+Using Covariance Matrix Adaptation Evolution Strategy (CMA-ES)
+Running in sequential mode.
+Population size: 16
+Iter. Eval.  Best      Time m:s
+0     16      109.0394   0:00.1
+1     32      82.55037   0:00.1
+2     48      51.81353   0:00.1
+3     64      33.92966   0:00.1
+20    336     4.850701   0:00.3
+40    656     4.320342   0:00.6
+60    976     2.81169    0:00.9
+80    1296    2.635542   0:01.1
+100   1616    1.4178     0:01.4
+120   1936    1.203823   0:01.7
+140   2256    0.984      0:01.9
+160   2576    0.819      0:02.2
+180   2896    0.665      0:02.4
+200   3216    0.552      0:02.7
+220   3536    0.434      0:02.9
+240   3856    0.293      0:03.2
+260   4176    0.216      0:03.5
+280   4496    0.132      0:03.8
+300   4816    0.116      0:04.1
+320   5136    0.102      0:04.4
+340   5456    0.079973   0:04.6
+360   5776    0.0645     0:04.9
+380   6096    0.0532     0:05.1
+400   6416    0.0475     0:05.4
+420   6736    0.0379     0:05.7
+440   7056    0.0326     0:05.9
+460   7376    0.0266     0:06.2
+480   7696    0.0206     0:06.5
+500   8016    0.0153     0:06.7
+520   8336    0.0148     0:07.0
+540   8656    0.011      0:07.2
+560   8976    0.00939    0:07.5
+580   9296    0.00748    0:07.8
+600   9616    0.00638    0:08.0
+620   9936    0.00495    0:08.3
+640   10256   0.00431    0:08.5
+660   10576   0.0036     0:08.8
+680   10896   0.00304    0:09.1
+700   11216   0.00232    0:09.3
+720   11536   0.0021     0:09.6
+740   11856   0.0018     0:09.8
+760   12176   0.0015     0:10.1
+780   12496   0.00122    0:10.3
+800   12816   0.00107    0:10.6
+820   13136   0.000953   0:10.9
+840   13456   0.000814   0:11.1
+860   13776   0.000734   0:11.4
+880   14096   0.000654   0:11.6
+900   14416   0.000566   0:11.9
+920   14736   0.000527   0:12.1
+940   15056   0.000491   0:12.4
+960   15376   0.000442   0:12.7
+980   15696   0.000409   0:12.9
+1000  16016   0.000367   0:13.2
+1020  16336   0.000342   0:13.5
+1040  16656   0.000306   0:13.7
+1060  16976   0.000277   0:14.0
+1080  17296   0.000259   0:14.2
+1100  17616   0.000237   0:14.5
+1120  17936   0.000222   0:14.8
+1140  18256   0.000207   0:15.0
+1160  18576   0.000197   0:15.3
+1180  18896   0.00019    0:15.6
+1200  19216   0.000182   0:15.8
+1220  19536   0.000174   0:16.1
+1240  19856   0.000167   0:16.4
+1260  20176   0.000161   0:16.6
+1280  20496   0.000155   0:16.9
+1300  20816   0.000147   0:17.2
+1320  21136   0.000141   0:17.4
+1340  21456   0.000135   0:17.7
+1360  21776   0.00013    0:17.9
+1380  22096   0.000126   0:18.2
+1390  22240   0.000123   0:18.3
+Halting: No significant change for 50 iterations.
+iTheta = 0, theta = -2.4384048161365803
+0-th value checked. Number of evaluations: 20416 Elapsed time: 16.46566104888916s.
+1-th value checked. Number of evaluations: 17648 Elapsed time: 13.788254976272583s.
+2-th value checked. Number of evaluations: 20944 Elapsed time: 16.29625415802002s.
+3-th value checked. Number of evaluations: 18688 Elapsed time: 14.893460988998413s.
+4-th value checked. Number of evaluations: 1872 Elapsed time: 1.60943603515625s.
+5-th value checked. Number of evaluations: 1056 Elapsed time: 0.8572368621826172s.
+6-th value checked. Number of evaluations: 19712 Elapsed time: 15.854832172393799s.
+7-th value checked. Number of evaluations: 16512 Elapsed time: 13.098623037338257s.
+8-th value checked. Number of evaluations: 14992 Elapsed time: 11.752871990203857s.
+9-th value checked. Number of evaluations: 14096 Elapsed time: 11.022341012954712s.
+10-th value checked. Number of evaluations: 15968 Elapsed time: 12.492809057235718s.
+11-th value checked. Number of evaluations: 14976 Elapsed time: 11.677120923995972s.
+12-th value checked. Number of evaluations: 14720 Elapsed time: 11.52134919166565s.
+13-th value checked. Number of evaluations: 14288 Elapsed time: 11.2322518825531s.
+14-th value checked. Number of evaluations: 13488 Elapsed time: 10.69267988204956s.
+15-th value checked. Number of evaluations: 13584 Elapsed time: 10.611278057098389s.
+16-th value checked. Number of evaluations: 12944 Elapsed time: 10.20222520828247s.
+17-th value checked. Number of evaluations: 13600 Elapsed time: 10.792106866836548s.
+18-th value checked. Number of evaluations: 15824 Elapsed time: 12.472949028015137s.
+19-th value checked. Number of evaluations: 12992 Elapsed time: 10.201601028442383s.
+20-th value checked. Number of evaluations: 15248 Elapsed time: 11.97687292098999s.
+21-th value checked. Number of evaluations: 12512 Elapsed time: 9.98175597190857s.
+22-th value checked. Number of evaluations: 14144 Elapsed time: 11.13303017616272s.
+23-th value checked. Number of evaluations: 11488 Elapsed time: 9.098308086395264s.
+24-th value checked. Number of evaluations: 14912 Elapsed time: 11.707681894302368s.
+25-th value checked. Number of evaluations: 12208 Elapsed time: 9.621673107147217s.
+26-th value checked. Number of evaluations: 13680 Elapsed time: 10.977807760238647s.
+27-th value checked. Number of evaluations: 14512 Elapsed time: 12.14069390296936s.
+28-th value checked. Number of evaluations: 11696 Elapsed time: 9.46094799041748s.
+29-th value checked. Number of evaluations: 14128 Elapsed time: 11.96220874786377s.
+30-th value checked. Number of evaluations: 13232 Elapsed time: 10.505913019180298s.
+31-th value checked. Number of evaluations: 14144 Elapsed time: 11.157076835632324s.
+32-th value checked. Number of evaluations: 12912 Elapsed time: 10.154919147491455s.
+33-th value checked. Number of evaluations: 14496 Elapsed time: 11.342813968658447s.
+34-th value checked. Number of evaluations: 13952 Elapsed time: 11.120500802993774s.
+35-th value checked. Number of evaluations: 12848 Elapsed time: 10.116987943649292s.
+36-th value checked. Number of evaluations: 14416 Elapsed time: 11.980345010757446s.
+37-th value checked. Number of evaluations: 11840 Elapsed time: 9.46876311302185s.
+38-th value checked. Number of evaluations: 14624 Elapsed time: 11.858213663101196s.
+39-th value checked. Number of evaluations: 13600 Elapsed time: 10.805546045303345s.
+40-th value checked. Number of evaluations: 13104 Elapsed time: 10.27409315109253s.
+41-th value checked. Number of evaluations: 11952 Elapsed time: 9.4411940574646s.
+42-th value checked. Number of evaluations: 13008 Elapsed time: 10.195426225662231s.
+43-th value checked. Number of evaluations: 13968 Elapsed time: 11.00329303741455s.
+44-th value checked. Number of evaluations: 13712 Elapsed time: 11.951805830001831s.
+45-th value checked. Number of evaluations: 12048 Elapsed time: 9.888366222381592s.
+46-th value checked. Number of evaluations: 14560 Elapsed time: 11.504889965057373s.
+47-th value checked. Number of evaluations: 12448 Elapsed time: 9.824182987213135s.
+48-th value checked. Number of evaluations: 13296 Elapsed time: 10.675407886505127s.
+49-th value checked. Number of evaluations: 15808 Elapsed time: 12.63924789428711s.
+0-th value checked. Number of evaluations: 18368 Elapsed time: 14.398179292678833s.
+1-th value checked. Number of evaluations: 23856 Elapsed time: 19.198703289031982s.
+2-th value checked. Number of evaluations: 22096 Elapsed time: 17.606448888778687s.
+3-th value checked. Number of evaluations: 24736 Elapsed time: 19.440749168395996s.
+4-th value checked. Number of evaluations: 20384 Elapsed time: 16.209315061569214s.
+5-th value checked. Number of evaluations: 19872 Elapsed time: 15.713354110717773s.
+6-th value checked. Number of evaluations: 27424 Elapsed time: 22.10361123085022s.
+7-th value checked. Number of evaluations: 21472 Elapsed time: 17.31813383102417s.
+8-th value checked. Number of evaluations: 976 Elapsed time: 0.7910459041595459s.
+9-th value checked. Number of evaluations: 23536 Elapsed time: 18.947882175445557s.
+10-th value checked. Number of evaluations: 22800 Elapsed time: 18.43804693222046s.
+11-th value checked. Number of evaluations: 30848 Elapsed time: 24.847235918045044s.
+12-th value checked. Number of evaluations: 25440 Elapsed time: 19.959425687789917s.
+13-th value checked. Number of evaluations: 21712 Elapsed time: 17.70324468612671s.
+14-th value checked. Number of evaluations: 22064 Elapsed time: 17.8435161113739s.
+15-th value checked. Number of evaluations: 24048 Elapsed time: 19.510313987731934s.
+16-th value checked. Number of evaluations: 26160 Elapsed time: 21.682178020477295s.
+17-th value checked. Number of evaluations: 23744 Elapsed time: 18.946543216705322s.
+18-th value checked. Number of evaluations: 30464 Elapsed time: 24.58232283592224s.
+19-th value checked. Number of evaluations: 27008 Elapsed time: 21.870579957962036s.
+20-th value checked. Number of evaluations: 26336 Elapsed time: 21.308898210525513s.
+21-th value checked. Number of evaluations: 27232 Elapsed time: 22.044047832489014s.
+22-th value checked. Number of evaluations: 27568 Elapsed time: 22.349243879318237s.
+23-th value checked. Number of evaluations: 25984 Elapsed time: 21.08454394340515s.
+24-th value checked. Number of evaluations: 25728 Elapsed time: 20.38805913925171s.
+25-th value checked. Number of evaluations: 23952 Elapsed time: 19.23078203201294s.
+26-th value checked. Number of evaluations: 27520 Elapsed time: 22.197132110595703s.
+27-th value checked. Number of evaluations: 2208 Elapsed time: 1.7913951873779297s.
+28-th value checked. Number of evaluations: 23152 Elapsed time: 18.8296000957489s.
+29-th value checked. Number of evaluations: 25088 Elapsed time: 20.083897829055786s.
+30-th value checked. Number of evaluations: 22944 Elapsed time: 18.73581314086914s.
+31-th value checked. Number of evaluations: 832 Elapsed time: 0.7305879592895508s.
+32-th value checked. Number of evaluations: 3008 Elapsed time: 2.621258020401001s.
+33-th value checked. Number of evaluations: 28416 Elapsed time: 24.782542943954468s.
+34-th value checked. Number of evaluations: 26848 Elapsed time: 21.933547019958496s.
+35-th value checked. Number of evaluations: 24736 Elapsed time: 19.668254137039185s.
+36-th value checked. Number of evaluations: 2976 Elapsed time: 2.469184160232544s.
+37-th value checked. Number of evaluations: 26368 Elapsed time: 23.37883186340332s.
+38-th value checked. Number of evaluations: 25936 Elapsed time: 21.282639026641846s.
+39-th value checked. Number of evaluations: 29392 Elapsed time: 24.2744357585907s.
+40-th value checked. Number of evaluations: 32832 Elapsed time: 27.570638179779053s.
+41-th value checked. Number of evaluations: 27968 Elapsed time: 23.55885410308838s.
+42-th value checked. Number of evaluations: 24528 Elapsed time: 20.528377771377563s.
+43-th value checked. Number of evaluations: 25728 Elapsed time: 21.60856795310974s.
+44-th value checked. Number of evaluations: 21888 Elapsed time: 18.30564308166504s.
+45-th value checked. Number of evaluations: 28608 Elapsed time: 23.814642190933228s.
+46-th value checked. Number of evaluations: 29088 Elapsed time: 24.53000783920288s.
+47-th value checked. Number of evaluations: 24240 Elapsed time: 20.650011777877808s.
+48-th value checked. Number of evaluations: 21936 Elapsed time: 17.954132795333862s.
+iTheta = 1, theta = -5.268758564306492
+0-th value checked. Number of evaluations: 23152 Elapsed time: 18.584402084350586s.
+1-th value checked. Number of evaluations: 21616 Elapsed time: 17.99788808822632s.
+2-th value checked. Number of evaluations: 21680 Elapsed time: 17.733931064605713s.
+3-th value checked. Number of evaluations: 20432 Elapsed time: 16.501466989517212s.
+4-th value checked. Number of evaluations: 21264 Elapsed time: 17.156923055648804s.
+5-th value checked. Number of evaluations: 21424 Elapsed time: 17.382987022399902s.
+6-th value checked. Number of evaluations: 2720 Elapsed time: 2.2597670555114746s.
+7-th value checked. Number of evaluations: 21568 Elapsed time: 17.74482822418213s.
+8-th value checked. Number of evaluations: 19360 Elapsed time: 15.792061805725098s.
+9-th value checked. Number of evaluations: 20000 Elapsed time: 16.38528299331665s.
+10-th value checked. Number of evaluations: 18960 Elapsed time: 15.56566596031189s.
+11-th value checked. Number of evaluations: 912 Elapsed time: 0.764545202255249s.
+12-th value checked. Number of evaluations: 18880 Elapsed time: 15.577080249786377s.
+13-th value checked. Number of evaluations: 18816 Elapsed time: 15.84590196609497s.
+14-th value checked. Number of evaluations: 17280 Elapsed time: 14.34025502204895s.
+15-th value checked. Number of evaluations: 17280 Elapsed time: 14.302308797836304s.
+16-th value checked. Number of evaluations: 16512 Elapsed time: 13.751046180725098s.
+17-th value checked. Number of evaluations: 1808 Elapsed time: 1.5298278331756592s.
+18-th value checked. Number of evaluations: 15632 Elapsed time: 12.965574026107788s.
+19-th value checked. Number of evaluations: 17744 Elapsed time: 14.874998092651367s.
+20-th value checked. Number of evaluations: 1232 Elapsed time: 1.127885103225708s.
+21-th value checked. Number of evaluations: 14560 Elapsed time: 12.137891054153442s.
+22-th value checked. Number of evaluations: 16720 Elapsed time: 13.687862634658813s.
+23-th value checked. Number of evaluations: 14448 Elapsed time: 11.822127103805542s.
+24-th value checked. Number of evaluations: 13936 Elapsed time: 11.517359972000122s.
+25-th value checked. Number of evaluations: 14016 Elapsed time: 11.51369309425354s.
+26-th value checked. Number of evaluations: 13008 Elapsed time: 10.8283109664917s.
+27-th value checked. Number of evaluations: 15520 Elapsed time: 12.70403790473938s.
+28-th value checked. Number of evaluations: 13376 Elapsed time: 11.1529700756073s.
+29-th value checked. Number of evaluations: 14704 Elapsed time: 12.347513198852539s.
+30-th value checked. Number of evaluations: 12048 Elapsed time: 9.880136966705322s.
+31-th value checked. Number of evaluations: 14928 Elapsed time: 12.2294340133667s.
+32-th value checked. Number of evaluations: 14704 Elapsed time: 12.244456052780151s.
+33-th value checked. Number of evaluations: 13712 Elapsed time: 11.186014175415039s.
+34-th value checked. Number of evaluations: 14784 Elapsed time: 12.11144495010376s.
+35-th value checked. Number of evaluations: 16160 Elapsed time: 13.212086200714111s.
+36-th value checked. Number of evaluations: 13184 Elapsed time: 10.951247215270996s.
+37-th value checked. Number of evaluations: 12336 Elapsed time: 10.129820823669434s.
+38-th value checked. Number of evaluations: 14928 Elapsed time: 12.125093936920166s.
+39-th value checked. Number of evaluations: 13216 Elapsed time: 10.693928003311157s.
+40-th value checked. Number of evaluations: 14688 Elapsed time: 11.911993026733398s.
+41-th value checked. Number of evaluations: 13168 Elapsed time: 10.673591136932373s.
+42-th value checked. Number of evaluations: 15600 Elapsed time: 12.739771127700806s.
+43-th value checked. Number of evaluations: 15792 Elapsed time: 12.878178834915161s.
+44-th value checked. Number of evaluations: 12864 Elapsed time: 10.46745491027832s.
+45-th value checked. Number of evaluations: 13392 Elapsed time: 10.955052137374878s.
+46-th value checked. Number of evaluations: 12672 Elapsed time: 10.463303804397583s.
+47-th value checked. Number of evaluations: 12752 Elapsed time: 10.516296148300171s.
+48-th value checked. Number of evaluations: 13040 Elapsed time: 10.69060468673706s.
+49-th value checked. Number of evaluations: 15328 Elapsed time: 12.539663791656494s.
+0-th value checked. Number of evaluations: 17376 Elapsed time: 14.31239104270935s.
+1-th value checked. Number of evaluations: 25424 Elapsed time: 20.647237300872803s.
+2-th value checked. Number of evaluations: 19744 Elapsed time: 15.959256172180176s.
+3-th value checked. Number of evaluations: 21840 Elapsed time: 17.779980897903442s.
+4-th value checked. Number of evaluations: 20368 Elapsed time: 16.437645196914673s.
+5-th value checked. Number of evaluations: 960 Elapsed time: 0.812053918838501s.
+6-th value checked. Number of evaluations: 26608 Elapsed time: 22.08669400215149s.
+7-th value checked. Number of evaluations: 23024 Elapsed time: 19.249724864959717s.
+8-th value checked. Number of evaluations: 20336 Elapsed time: 16.582091093063354s.
+9-th value checked. Number of evaluations: 1888 Elapsed time: 1.5650811195373535s.
+10-th value checked. Number of evaluations: 26736 Elapsed time: 22.877686977386475s.
+11-th value checked. Number of evaluations: 1392 Elapsed time: 1.1526591777801514s.
+12-th value checked. Number of evaluations: 1376 Elapsed time: 1.2025022506713867s.
+13-th value checked. Number of evaluations: 26176 Elapsed time: 22.01821804046631s.
+14-th value checked. Number of evaluations: 20144 Elapsed time: 16.420763731002808s.
+15-th value checked. Number of evaluations: 18864 Elapsed time: 15.41176986694336s.
+16-th value checked. Number of evaluations: 21440 Elapsed time: 17.44859790802002s.
+17-th value checked. Number of evaluations: 19792 Elapsed time: 16.109580993652344s.
+18-th value checked. Number of evaluations: 832 Elapsed time: 0.6920459270477295s.
+19-th value checked. Number of evaluations: 22688 Elapsed time: 18.758465051651s.
+20-th value checked. Number of evaluations: 22576 Elapsed time: 18.513383150100708s.
+21-th value checked. Number of evaluations: 22400 Elapsed time: 18.68139886856079s.
+22-th value checked. Number of evaluations: 20416 Elapsed time: 17.20113182067871s.
+23-th value checked. Number of evaluations: 22240 Elapsed time: 18.286771774291992s.
+24-th value checked. Number of evaluations: 24784 Elapsed time: 20.481976747512817s.
+25-th value checked. Number of evaluations: 21008 Elapsed time: 17.447598934173584s.
+26-th value checked. Number of evaluations: 21952 Elapsed time: 18.05516791343689s.
+27-th value checked. Number of evaluations: 21456 Elapsed time: 17.590376377105713s.
+28-th value checked. Number of evaluations: 1920 Elapsed time: 1.6317222118377686s.
+29-th value checked. Number of evaluations: 23504 Elapsed time: 19.742620944976807s.
+30-th value checked. Number of evaluations: 21536 Elapsed time: 17.720168352127075s.
+31-th value checked. Number of evaluations: 22336 Elapsed time: 18.350271940231323s.
+32-th value checked. Number of evaluations: 22544 Elapsed time: 18.48843789100647s.
+33-th value checked. Number of evaluations: 21376 Elapsed time: 17.741392135620117s.
+34-th value checked. Number of evaluations: 1760 Elapsed time: 1.4762780666351318s.
+35-th value checked. Number of evaluations: 22048 Elapsed time: 18.08509588241577s.
+36-th value checked. Number of evaluations: 24016 Elapsed time: 19.894239902496338s.
+37-th value checked. Number of evaluations: 19728 Elapsed time: 16.35635781288147s.
+38-th value checked. Number of evaluations: 23280 Elapsed time: 19.072162866592407s.
+39-th value checked. Number of evaluations: 1184 Elapsed time: 0.9903678894042969s.
+40-th value checked. Number of evaluations: 23584 Elapsed time: 19.670347929000854s.
+41-th value checked. Number of evaluations: 880 Elapsed time: 0.7447471618652344s.
+42-th value checked. Number of evaluations: 20032 Elapsed time: 17.23626208305359s.
+43-th value checked. Number of evaluations: 24624 Elapsed time: 20.194408893585205s.
+44-th value checked. Number of evaluations: 18832 Elapsed time: 15.299282789230347s.
+45-th value checked. Number of evaluations: 20560 Elapsed time: 16.840421199798584s.
+46-th value checked. Number of evaluations: 21280 Elapsed time: 17.345252752304077s.
+47-th value checked. Number of evaluations: 23808 Elapsed time: 19.69217300415039s.
+48-th value checked. Number of evaluations: 21680 Elapsed time: 17.59156107902527s.

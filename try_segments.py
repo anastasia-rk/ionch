@@ -51,7 +51,7 @@ def almost_block_diag(arrs):
         c+=cc-1
     return out
 
-def optimise_segment(roi,input_roi,output_roi,support_roi):
+def optimise_first_segment(roi,input_roi,output_roi,support_roi):
     class bsplineOutput(pints.ForwardModel):
         # this model outputs the discrepancy to be used in a rectangle quadrature scheme
         def simulate(self, parameters, times):
@@ -90,11 +90,66 @@ def optimise_segment(roi,input_roi,output_roi,support_roi):
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
                                                    boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
-    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-8)
+    optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
+    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(False)
     betas_roi, cost_roi = optimiser_inner.run()
-    return betas_roi, cost_roi
+    nEvaluations = optimiser_inner._evaluations
+    return betas_roi, cost_roi, nEvaluations
+
+def optimise_segment(roi,input_roi,output_roi,support_roi):
+    class bsplineOutputSegment(pints.ForwardModel):
+        # this model outputs the discrepancy to be used in a rectangle quadrature scheme
+        def simulate(self, parameters, times):
+            # given times and return the simulated values
+            coeffs_a, coeffs_r = np.split(parameters, 2)
+            coeffs_a = np.insert(coeffs_a, 0, first_spline_coeff_a)
+            coeffs_r = np.insert(coeffs_r, 0, first_spline_coeff_r)
+            tck_a = (support_roi, coeffs_a, degree)
+            tck_r = (support_roi, coeffs_r, degree)
+            dot_a = sp.interpolate.splev(times, tck_a, der=1)
+            dot_r = sp.interpolate.splev(times, tck_r, der=1)
+            fun_a = sp.interpolate.splev(times, tck_a, der=0)
+            fun_r = sp.interpolate.splev(times, tck_r, der=0)
+            # the RHS must be put into an array
+            dadr = ion_channel_model(times, [fun_a, fun_r], Thetas_ODE)
+            rhs_theta = np.array(dadr)
+            spline_surface = np.array([fun_a, fun_r])
+            spline_deriv = np.array([dot_a, dot_r])
+            # pack all required variables into the same array - will be the wrong orientation from pints preferred nTimes x nOutputs
+            packed_output = np.concatenate((spline_surface,spline_deriv,rhs_theta),axis=0)
+            return np.transpose(packed_output)
+
+        def n_parameters(self):
+            # Return the dimension of the parameter vector
+            return nBsplineCoeffs-2
+
+        def n_outputs(self):
+            # Return the dimension of the output vector
+            return nOutputs
+    # define a class that outputs only b-spline surface features
+    model_bsplines = bsplineOutputSegment()
+    init_betas = 0.5 * np.ones(nBsplineCoeffs-2)  # initial values of B-spline coefficients
+    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs-2)
+    values_to_match_output_dims = np.transpose( np.array([output_roi, input_roi, output_roi, input_roi, output_roi, input_roi]))
+    problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
+    error_inner = InnerCriterion(problem=problem_inner)
+    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
+    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
+                                                   boundaries=boundaries_betas, method=pints.CMAES)
+    optimiser_inner.set_max_iterations(30000)
+    optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
+    optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
+    optimiser_inner.set_parallel(False)
+    optimiser_inner.set_log_to_screen(False)
+    betas_roi, cost_roi = optimiser_inner.run()
+    nEvaluations = optimiser_inner._evaluations
+    coeffs_a, coeffs_r = np.split(betas_roi, 2)
+    coeffs_a = np.insert(coeffs_a,0,first_spline_coeff_a)
+    coeffs_r = np.insert(coeffs_r,0,first_spline_coeff_r)
+    betas_roi_with_first_coeff = np.concatenate((coeffs_a,coeffs_r))
+    return betas_roi_with_first_coeff, cost_roi, nEvaluations
 
 # main
 if __name__ == '__main__':
@@ -107,7 +162,7 @@ if __name__ == '__main__':
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
     # tlim = [0, int(volt_times[-1]*1000)]
-    tlim = [0, 3600]
+    tlim = [3500, 6000]
     times = np.linspace(*tlim, tlim[-1])
     volts_new = V(times)
     ## Generate the synthetic data
@@ -116,6 +171,7 @@ if __name__ == '__main__':
     thetas_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
     # initialise and solve ODE
     x0 = [0, 1]
+    state_names = ['a','r']
     # solve initial value problem
     tlim[1]+=1 #solve for a slightly longer period
     solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[thetas_true], dense_output=True,
@@ -137,7 +193,7 @@ if __name__ == '__main__':
     switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
     # ignore everything outside of the region of iterest
     # get the times of all jumps
-    a = [0] + [i + 1 for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
+    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
     # remove consecutive numbers from the list
     b = []
     for i in range(len(a)):
@@ -263,7 +319,7 @@ if __name__ == '__main__':
     ####################################################################################################################
     ## define pints classes for optimisation
     ## Classes to run optimisation in pints
-    lambd = 1000
+    lambd = 10000
     nBsplineCoeffs = len(coeffs) * 2  # number of B-spline coefficients for a segment
     Thetas_ODE = thetas_true.copy() # initial values of the ODE parametes
     nOutputs = 6
@@ -328,18 +384,73 @@ if __name__ == '__main__':
     # try optimising several segments
     all_betas = []
     all_costs = []
-    *ps, g = Thetas_ODE
-    for iSegment in range(2):
+    *ps, g = thetas_true
+    model_bsplines = bsplineOutputTest()
+    end_of_roi = []
+    state_of_roi = {key: [] for key in state_names}
+    totalEvaluations = []
+    big_tic = tm.time()
+    for iSegment in range(1):
         tic = tm.time()
         segment = times_roi[iSegment]
         input_segment = voltage_roi[iSegment]
         output_segment = current_roi[iSegment]
         support_segment = knots_roi[iSegment]
-        betas, cost = optimise_segment(segment,input_segment,output_segment,support_segment)
+        betas, cost, nEvals = optimise_first_segment(segment,input_segment,output_segment,support_segment)
+        totalEvaluations.append(nEvals)
         all_betas.append(betas)
         all_costs.append(cost)
         toc = tm.time()
-        print('Iteration ' + str(iSegment) + ' is finished. Elapsed time: ' + str(toc-tic) + 's')
+        print('Iteration ' + str(iSegment) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
+        # check collocation solution against truth
+        model_output_fit_at_truth = model_bsplines.simulate(betas,knots_roi[iSegment], times_roi[iSegment])
+        state_at_truth, state_deriv_at_truth, rhs_truth = np.split(model_output_fit_at_truth, 3, axis=1)
+        current_model_at_truth = g * state_at_truth[:, 0] * state_at_truth[:, 1] * (voltage_roi[iSegment] - EK)
+        fig, axes = plt.subplot_mosaic([['a)', 'a)'], ['b)', 'c)'], ['d)', 'e)']], layout='constrained')
+        y_labels = ['I', '$\dot{a}$', '$\dot{r}$', '$a$', '$r$']
+        axes['a)'].plot(times_roi[iSegment], output_segment, '-k', label=r'Current true', linewidth=2, alpha=0.7)
+        axes['a)'].plot(times_roi[iSegment], current_model_at_truth, '--b', label=r'Optimised given true $\theta$')
+        axes['b)'].plot(times_roi[iSegment], rhs_truth[:, 0], '-m', label=r'$\dot{a}$ given true $\theta$', linewidth=2,
+                        alpha=0.7)
+        axes['b)'].plot(times_roi[iSegment], state_deriv_at_truth[:, 0], '--b',
+                        label=r'B-spline derivative given true $\theta$')
+        axes['c)'].plot(times_roi[iSegment], rhs_truth[:, 1], '-m', label=r'$\dot{r}$ given true $\theta$', linewidth=2,
+                        alpha=0.7)
+        axes['c)'].plot(times_roi[iSegment], state_deriv_at_truth[:, 1], '--b',
+                        label=r'B-spline derivative given true $\theta$')
+        axes['d)'].plot(times_roi[iSegment], states_roi[iSegment][0, :], '-k', label=r'$a$ true', linewidth=2, alpha=0.7)
+        axes['d)'].plot(times_roi[iSegment], state_at_truth[:, 0], '--b', label=r'B-spline approximation given true $\theta$')
+        axes['e)'].plot(times_roi[iSegment], states_roi[iSegment][1, :], '-k', label=r'$r$ true', linewidth=2, alpha=0.7)
+        axes['e)'].plot(times_roi[iSegment], state_at_truth[:, 1], '--b', label=r'B-spline approximation given true $\theta$')
+        iAx = 0
+        for _, ax in axes.items():
+            ax.set_ylabel(y_labels[iAx], fontsize=12)
+            ax.legend(fontsize=12, loc='upper left')
+            iAx += 1
+        # plt.tight_layout(pad=0.3)
+        plt.savefig('Figures/cost_terms_at_truth_segment_'+ str(iSegment) + '.png', dpi=400)
+        # save the final value of the segment
+        end_of_roi.append(state_at_truth[-1,:])
+        for iState, stateName in enumerate(state_names):
+            state_of_roi[stateName] += list(state_at_truth[:, iState])
+    ####################################################################################################################
+    #  optimise the following segments by matching the first B-spline height to the previous segment
+    for iSegment in range(1,4):
+        tic = tm.time()
+        segment = times_roi[iSegment]
+        input_segment = voltage_roi[iSegment]
+        output_segment = current_roi[iSegment]
+        support_segment = knots_roi[iSegment]
+        collocation_segment = collocation_roi[iSegment]
+        # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
+        first_spline_coeff_a = end_of_roi[-1][0] / collocation_segment[0, 0]
+        first_spline_coeff_r = end_of_roi[-1][1] / collocation_segment[0, 0]
+        betas, cost, nEvals = optimise_segment(segment,input_segment,output_segment,support_segment)
+        totalEvaluations.append(nEvals)
+        all_betas.append(betas)
+        all_costs.append(cost)
+        toc = tm.time()
+        print('Iteration ' + str(iSegment) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
         # check collocation solution against truth
         model_bsplines = bsplineOutputTest()
         model_output_fit_at_truth = model_bsplines.simulate(betas,knots_roi[iSegment], times_roi[iSegment])
@@ -368,4 +479,33 @@ if __name__ == '__main__':
             iAx += 1
         # plt.tight_layout(pad=0.3)
         plt.savefig('Figures/cost_terms_at_truth_segment_'+ str(iSegment) + '.png', dpi=400)
+        # store end of segment and the whole state for the
+        end_of_roi.append(state_at_truth[-1, :])
+        for iState, stateName in enumerate(state_names):
+            state_of_roi[stateName] += list(state_at_truth[:, iState])
+    #### end of loop
+    ################################################################################################################
+    big_toc = tm.time()
+    print('Total evaluations: ' + str(sum(totalEvaluations)) + '. Total runtime: ' + str(big_toc-big_tic) + ' s.' )
+
+
+    times_of_segments = np.hstack(times_roi[:iSegment+1])
+    states_of_segments = [v for k, v in state_of_roi.items()]
+    fig, axes = plt.subplot_mosaic([['a)'], ['b)'], ['c)']], layout='constrained')
+    y_labels = ['I', '$a$', '$r$']
+
+    axes['a)'].plot(times, observation(times, solution.sol(times), thetas_true), '-k', label=r'Current true', linewidth=2, alpha=0.7)
+    axes['a)'].plot(times_of_segments, observation(times_of_segments, np.array(states_of_segments), thetas_true), '--b', label=r'Optimised given true $\theta$')
+    axes['a)'].set_xlim(times_of_segments[0],times_of_segments[-1])
+    axes['b)'].plot(times_of_segments, solution.sol(times_of_segments)[0, :], '-k', label=r'$a$ true', linewidth=2, alpha=0.7)
+    axes['b)'].plot(times_of_segments, state_of_roi[state_names[0]], '--b', label=r'B-spline approximation given true $\theta$')
+    axes['c)'].plot(times_of_segments, solution.sol(times_of_segments)[1, :], '-k', label=r'$r$ true', linewidth=2, alpha=0.7)
+    axes['c)'].plot(times_of_segments, state_of_roi[state_names[1]], '--b', label=r'B-spline approximation given true $\theta$')
+    iAx = 0
+    for _, ax in axes.items():
+        ax.set_ylabel(y_labels[iAx], fontsize=12)
+        ax.legend(fontsize=12, loc='upper left')
+        iAx += 1
+    # plt.tight_layout(pad=0.3)
+    plt.savefig('Figures/states_all_segments.png', dpi=400)
     print('pause here')
