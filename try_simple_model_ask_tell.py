@@ -144,7 +144,7 @@ if __name__ == '__main__':
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
     nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
-    nPoints_between_closest = 8  # step between knots at the finest grid
+    nPoints_between_closest = 12  # step between knots at the finest grid
     nPoints_around_jump = 48  # the time period from jump on which we place medium grid
     step_between_knots = 48  # this is the step between knots around the jump in the medium grid
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values

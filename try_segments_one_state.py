@@ -31,29 +31,29 @@ def observation(t, x, theta):
 def V(t):
     return volts_intepolated((t)/ 1000)
 
-# ### Only consider a -- all params in log scale
-# def ion_channel_model_one_state(t, x, theta):
-#     # call the model with a smaller number of unknown parameters and one state known
-#     a = x
-#     v = V(t)
-#     k1 =  np.exp(theta[0] + np.exp(theta[1]) * v)
-#     k2 =  np.exp(theta[2] -np.exp(theta[3]) * v)
-#     a_inf = k1 / (k1 + k2)
-#     tau_a = 1 / (k1 + k2)
-#     da = (a_inf - a) / tau_a
-#     return da
-
-# # # # Only  consider r -- log space on a parameters
+### Only consider a -- all params in log scale
 def ion_channel_model_one_state(t, x, theta):
     # call the model with a smaller number of unknown parameters and one state known
-    r = x
+    a = x
     v = V(t)
-    k3 =  np.exp(theta[0] + np.exp(theta[1]) * v)
-    k4 =  np.exp(theta[2] - np.exp(theta[3]) * v)
-    r_inf = k4 / (k3 + k4)
-    tau_r = 1 / (k3 + k4)
-    dr = (r_inf - r) / tau_r
-    return dr
+    k1 =  np.exp(theta[0] + np.exp(theta[1]) * v)
+    k2 =  np.exp(theta[2] -np.exp(theta[3]) * v)
+    a_inf = k1 / (k1 + k2)
+    tau_a = 1 / (k1 + k2)
+    da = (a_inf - a) / tau_a
+    return da
+
+# # # # # Only  consider r -- log space on a parameters
+# def ion_channel_model_one_state(t, x, theta):
+#     # call the model with a smaller number of unknown parameters and one state known
+#     r = x
+#     v = V(t)
+#     k3 =  np.exp(theta[0] + np.exp(theta[1]) * v)
+#     k4 =  np.exp(theta[2] - np.exp(theta[3]) * v)
+#     r_inf = k4 / (k3 + k4)
+#     tau_r = 1 / (k3 + k4)
+#     dr = (r_inf - r) / tau_r
+#     return dr
 
 def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
     nOutputs = 3
@@ -182,33 +182,33 @@ if __name__ == '__main__':
     x_ar = solution.sol(times)
     current_true = observation(times, x_ar, thetas_true)
 
-    # ## single state model
-    ## use r as unknown state
-    # theta_true = [np.log(2.26e-4), np.log(0.0699), np.log(3.45e-5), np.log(0.05462)]
-    # inLogScale = True
-    # param_names = ['p_1','p_2','p_3','p_4']
-    # a0 = [0]
-    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True, method='LSODA',
-    #                                   rtol=1e-8, atol=1e-8)
-    # state_known_index = state_names.index('r')  # assume that we know r
-    # state_known = x_ar[state_known_index, :]
-    # state_name = 'a'
-    # hidden_state_names = 'a'
-
-    ## use a as unknown state
-    ## theta_true = [0.0873, 5.15e-3]
-    ## inLogScale = False
-    theta_true = [np.log(0.0873), np.log(8.91e-3), np.log(5.15e-3), np.log(0.03158)]
+    ## single state model
+    # use a as unknown state
+    theta_true = [np.log(2.26e-4), np.log(0.0699), np.log(3.45e-5), np.log(0.05462)]
     inLogScale = True
-    param_names = ['p_5','p_6','p_7','p_8']
-    r0 = [1]
-    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
-                                        method='LSODA',
-                                        rtol=1e-8, atol=1e-10)
-    state_known_index = state_names.index('a')  # assume that we know a
-    state_known = x_ar[state_known_index,:]
-    state_name = 'r'
-    hidden_state_names = 'r'
+    param_names = ['p_1','p_2','p_3','p_4']
+    a0 = [0]
+    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True, method='LSODA',
+                                      rtol=1e-8, atol=1e-8)
+    state_known_index = state_names.index('r')  # assume that we know r
+    state_known = x_ar[state_known_index, :]
+    state_name = 'a'
+    hidden_state_names = 'a'
+
+    # ## use a as unknown state
+    # ## theta_true = [0.0873, 5.15e-3]
+    # ## inLogScale = False
+    # theta_true = [np.log(0.0873), np.log(8.91e-3), np.log(5.15e-3), np.log(0.03158)]
+    # inLogScale = True
+    # param_names = ['p_5','p_6','p_7','p_8']
+    # r0 = [1]
+    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
+    #                                     method='LSODA',
+    #                                     rtol=1e-8, atol=1e-10)
+    # state_known_index = state_names.index('a')  # assume that we know a
+    # state_known = x_ar[state_known_index,:]
+    # state_name = 'r'
+    # hidden_state_names = 'r'
 
     ################################################################################################################
     ## B-spline representation setup
@@ -371,7 +371,7 @@ if __name__ == '__main__':
             return data_fit_cost + lambd * gradient_match_cost
     ####################################################################################################################
     # try optimising several segments
-    nRuns = 20
+    nRuns = 1
     cost_threshold = 10**(-3)
     # store the true state
     times_of_segments = np.hstack(times_roi[:len(times_roi)])
@@ -408,12 +408,14 @@ if __name__ == '__main__':
             output_segment = current_roi[iSegment]
             support_segment = knots_roi[iSegment]
             state_known_segment = states_known_roi[iSegment]
+            init_betas = 0.5 * np.ones(nBsplineCoeffs)
+            sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
             betas, cost, nEvals = optimise_first_segment(segment,input_segment,output_segment,support_segment,state_known_segment)
             totalEvaluations.append(nEvals)
             all_betas.append(betas)
             all_costs.append(cost)
             toc = tm.time()
-            print('Iteration ' + str(iSegment) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
+            print('Segment ' + str(iSegment+1) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
             # check collocation solution against truth
             model_output_fit_at_truth = model_bsplines.simulate(betas,support_segment, segment)
             state_at_truth, state_deriv_at_truth, rhs_truth = np.split(model_output_fit_at_truth, 3, axis=1)
@@ -445,7 +447,7 @@ if __name__ == '__main__':
             all_betas.append(betas)
             all_costs.append(cost)
             toc = tm.time()
-            print('Iteration ' + str(iSegment) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
+            print('Segment ' + str(iSegment) + ' is finished after '+ str(nEvals) +' evaluations. Elapsed time: ' + str(toc-tic) + 's.')
             # check collocation solution against truth
             model_output_fit_at_truth = model_bsplines.simulate(betas, support_segment, segment)
             state_at_truth, state_deriv_at_truth, rhs_truth = np.split(model_output_fit_at_truth, 3, axis=1)
@@ -456,7 +458,7 @@ if __name__ == '__main__':
             end_of_roi.append(state_at_truth[-1, :])
             for iState, stateName in enumerate(hidden_state_names):
                 state_fitted_roi[stateName] += list(state_at_truth[:, iState])
-        #### end of loop
+        #### end of loop over segments
         ####################################################################################################################
         big_toc = tm.time()
         print('Total evaluations: ' + str(sum(totalEvaluations)) + '. Total runtime: ' + str(big_toc-big_tic) + ' s.' )
@@ -474,6 +476,7 @@ if __name__ == '__main__':
         RMSE_all_runs.append(RMSE)
         sucsess_rate_all_runs.append(success_rate)
     ####################################################################################################################
+        cost_all_segments = [sum(list) for list in costs_all_runs]
     # plot joint segments
         axes['a)'].plot(times_of_segments,
                         observation(times_of_segments, np.array([states_of_segments_known, states_of_segments_hidden]),
