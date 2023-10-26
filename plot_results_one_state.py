@@ -78,13 +78,13 @@ if __name__ == '__main__':
     # interpolate with smaller time step (milliseconds)
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
     ####################################################################################################################
-    ## read results from file
-    with open("ask_tell_simple_problem_iterations.pkl", "rb") as input_file:
-        results_of_optimisation, metadata = pkl.load(input_file)
-    InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best = results_of_optimisation
-    ### note the metadata structure
-    ### metadata = {'times': times_roi, 'lambda': lambd, 'state_name': state_name, 'state_true': state_hidden_true, 'state_known': state_known,
-    ###             'knots': knots, 'truth': theta_true, 'param_names': param_names, 'log_scaled': inLogScale}
+    # ## read results from file
+    # with open("ask_tell_simple_problem_iterations.pkl", "rb") as input_file:
+    #     results_of_optimisation, metadata = pkl.load(input_file)
+    # InnerCosts_all, OuterCosts_all, theta_visited, theta_guessed, theta_best, f_guessed, f_best = results_of_optimisation
+    # ### note the metadata structure
+    # ### metadata = {'times': times_roi, 'lambda': lambd, 'state_name': state_name, 'state_true': state_hidden_true, 'state_known': state_known,
+    # ###             'knots': knots, 'truth': theta_true, 'param_names': param_names, 'log_scaled': inLogScale}
 
 
     tlim = [0, 6100]
@@ -145,7 +145,7 @@ if __name__ == '__main__':
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
     nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
-    nPoints_between_closest = 8  # step between knots at the finest grid
+    nPoints_between_closest = 12  # step between knots at the finest grid
     nPoints_around_jump = 48  # the time period from jump on which we place medium grid
     step_between_knots = 48  # this is the step between knots around the jump in the medium grid
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values

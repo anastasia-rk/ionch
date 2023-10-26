@@ -90,7 +90,7 @@ def optimise_first_segment(roi,input_roi,output_roi,support_roi):
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
                                                    boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
-    optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
+    # optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
     optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(False)
@@ -139,7 +139,7 @@ def optimise_segment(roi,input_roi,output_roi,support_roi):
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
                                                    boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
-    optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
+    # optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
     optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(False)
@@ -163,18 +163,19 @@ if __name__ == '__main__':
 
     # tlim = [0, int(volt_times[-1]*1000)]
     tlim = [3500, 6000]
-    times = np.linspace(*tlim, tlim[-1])
+    times = np.linspace(*tlim, tlim[-1]-tlim[0],endpoint=False)
     volts_new = V(times)
     ## Generate the synthetic data
     # parameter values for the model
     EK = -80
     thetas_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
+    thetas_test = [2.268e-4, 0.058, 0.000141, 0.0808 ]
     # initialise and solve ODE
     x0 = [0, 1]
     state_names = ['a','r']
     # solve initial value problem
     tlim[1]+=1 #solve for a slightly longer period
-    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[thetas_true], dense_output=True,
+    solution = sp.integrate.solve_ivp(ion_channel_model, [0,tlim[-1]], x0, args=[thetas_true], dense_output=True,
                                       method='LSODA', rtol=1e-8, atol=1e-8)
 
     ################################################################################################################
@@ -193,7 +194,7 @@ if __name__ == '__main__':
     switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
     # ignore everything outside of the region of iterest
     # get the times of all jumps
-    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
+    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(times)-1]  # get indeces of all the switchpoints, add t0 and tend
     # remove consecutive numbers from the list
     b = []
     for i in range(len(a)):

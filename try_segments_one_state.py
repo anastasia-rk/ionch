@@ -32,7 +32,7 @@ def V(t):
     return volts_intepolated((t)/ 1000)
 
 ### Only consider a -- all params in log scale
-def ion_channel_model_one_state(t, x, theta):
+def ode_a_only(t, x, theta):
     # call the model with a smaller number of unknown parameters and one state known
     a = x
     v = V(t)
@@ -43,17 +43,17 @@ def ion_channel_model_one_state(t, x, theta):
     da = (a_inf - a) / tau_a
     return da
 
-# # # # # Only  consider r -- log space on a parameters
-# def ion_channel_model_one_state(t, x, theta):
-#     # call the model with a smaller number of unknown parameters and one state known
-#     r = x
-#     v = V(t)
-#     k3 =  np.exp(theta[0] + np.exp(theta[1]) * v)
-#     k4 =  np.exp(theta[2] - np.exp(theta[3]) * v)
-#     r_inf = k4 / (k3 + k4)
-#     tau_r = 1 / (k3 + k4)
-#     dr = (r_inf - r) / tau_r
-#     return dr
+### Only  consider r -- log space on a parameters
+def ode_r_only(t, x, theta):
+    # call the model with a smaller number of unknown parameters and one state known
+    r = x
+    v = V(t)
+    k3 =  np.exp(theta[0] + np.exp(theta[1]) * v)
+    k4 =  np.exp(theta[2] - np.exp(theta[3]) * v)
+    r_inf = k4 / (k3 + k4)
+    tau_r = 1 / (k3 + k4)
+    dr = (r_inf - r) / tau_r
+    return dr
 
 def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
     nOutputs = 3
@@ -167,7 +167,7 @@ if __name__ == '__main__':
 
     # tlim = [0, int(volt_times[-1]*1000)]
     tlim = [3500, 6100]
-    times = np.linspace(*tlim, tlim[-1])
+    times = np.linspace(*tlim, tlim[-1]-tlim[0],endpoint=False)
     volts_new = V(times)
     ## Generate the synthetic data
     # parameter values for the model
@@ -178,45 +178,46 @@ if __name__ == '__main__':
     state_names = ['a','r']
     # solve initial value problem
     tlim[1]+=1 #solve for a slightly longer period
-    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[thetas_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
+    solution = sp.integrate.solve_ivp(ion_channel_model, [0,tlim[-1]], x0, args=[thetas_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
     x_ar = solution.sol(times)
     current_true = observation(times, x_ar, thetas_true)
 
-    ## single state model
-    # use a as unknown state
-    theta_true = [np.log(2.26e-4), np.log(0.0699), np.log(3.45e-5), np.log(0.05462)]
-    inLogScale = True
-    param_names = ['p_1','p_2','p_3','p_4']
-    a0 = [0]
-    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True, method='LSODA',
-                                      rtol=1e-8, atol=1e-8)
-    state_known_index = state_names.index('r')  # assume that we know r
-    state_known = x_ar[state_known_index, :]
-    state_name = 'a'
-    hidden_state_names = 'a'
-
-    # ## use a as unknown state
-    # ## theta_true = [0.0873, 5.15e-3]
-    # ## inLogScale = False
-    # theta_true = [np.log(0.0873), np.log(8.91e-3), np.log(5.15e-3), np.log(0.03158)]
+    # ## single state model
+    # # use a as unknown state
+    # theta_true = [np.log(2.26e-4), np.log(0.0699), np.log(3.45e-5), np.log(0.05462)]
     # inLogScale = True
-    # param_names = ['p_5','p_6','p_7','p_8']
-    # r0 = [1]
-    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
-    #                                     method='LSODA',
-    #                                     rtol=1e-8, atol=1e-10)
-    # state_known_index = state_names.index('a')  # assume that we know a
-    # state_known = x_ar[state_known_index,:]
-    # state_name = 'r'
-    # hidden_state_names = 'r'
+    # param_names = ['p_1', 'p_2', 'p_3', 'p_4']
+    # a0 = [0]
+    # ion_channel_model_one_state = ode_a_only
+    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, [0,tlim[-1]], a0, args=[theta_true],
+    #                                             dense_output=True, method='LSODA',
+    #                                             rtol=1e-8, atol=1e-8)
+    # state_known_index = state_names.index('r')  # assume that we know r
+    # state_known = x_ar[state_known_index, :]
+    # state_name = hidden_state_names = 'a'
+
+    ## use r as unknown state
+    ## theta_true = [0.0873, 5.15e-3]
+    ## inLogScale = False
+    theta_true = [np.log(0.0873), np.log(8.91e-3), np.log(5.15e-3), np.log(0.03158)]
+    inLogScale = True
+    param_names = ['p_5','p_6','p_7','p_8']
+    r0 = [1]
+    ion_channel_model_one_state = ode_r_only
+    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, [0,tlim[-1]], r0, args=[theta_true], dense_output=True,
+                                        method='LSODA',
+                                        rtol=1e-8, atol=1e-10)
+    state_known_index = state_names.index('a')  # assume that we know a
+    state_known = x_ar[state_known_index,:]
+    state_name = hidden_state_names= 'r'
 
     ################################################################################################################
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
     nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
-    nPoints_between_closest = 12  # step between knots at the finest grid
+    nPoints_between_closest = 4  # step between knots at the finest grid
     nPoints_around_jump = 48  # the time period from jump on which we place medium grid
-    step_between_knots = 48  # this is the step between knots around the jump in the medium grid
+    step_between_knots = 12  # this is the step between knots around the jump in the medium grid
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values
     ## find switchpoints
     d2v_dt2 = np.diff(volts_new, n=2)
@@ -226,7 +227,7 @@ if __name__ == '__main__':
     switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
     # ignore everything outside of the region of iterest
     # get the times of all jumps
-    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
+    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(times)-1]  # get indeces of all the switchpoints, add t0 and tend
     # remove consecutive numbers from the list
     b = []
     for i in range(len(a)):
@@ -497,6 +498,8 @@ if __name__ == '__main__':
         iAx += 1
     plt.tight_layout(pad=0.3)
     plt.savefig('Figures/all_segments_state_'+ state_name +'_nruns_'+str(nRuns)+'.png', dpi=400)
+
+
     # plot performace of algorithm
     fig, axes = plt.subplots(2,1,figsize=(10,10),sharex=True)
     axes[0].plot(RMSE_all_runs,marker='o',linestyle = 'None')

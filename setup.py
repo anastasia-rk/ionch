@@ -1,11 +1,14 @@
 # imports
 import numpy as np
 import scipy as sp
+import sys
 from scipy.interpolate import BSpline
 from autograd import hessian, jacobian, grad
 import matplotlib
 from matplotlib import pyplot as plt
 import time as tm
+import random
+import csv
 plt.ioff()
 plt.rcParams['figure.figsize'] = (20,10)
 plt.rcParams['figure.dpi'] = 400
@@ -28,7 +31,7 @@ def collocm(splinelist, tau):
     return np.array(mat)
 
 
-def ion_channel_model(t, x, theta):
+def hh_model(t, x, theta):
     a, r = x[:2]
     *p, g = theta[:9]
     v = V(t)
@@ -50,66 +53,32 @@ def observation(t, x, theta):
     *ps, g = theta[:9]
     return g * a * r * (V(t) - EK)
 
+def kemp_model(t, x, theta):
+    op, c1, h = x[:3]
+    *p, g = theta[:13]
+    v = V(t)
+    a1 = p[0] * np.exp(p[1] * v)
+    b1 = p[2] * np.exp(-p[3] * v)
+    ah = p[6] * np.exp(p[7] * v)
+    bh = p[4] * np.exp(-p[5] * v)
+    a2 = p[8] * np.exp(-p[9] * v)
+    b2 = p[10] * np.exp(-p[11] * v)
+    dop = a2*c1 - b2*op
+    dc1 = b2*op + a1*(1 - op - c1) - (a2 + b1)*c1
+    h_inf = ah/(ah + bh)
+    tau_h = 1/(ah + bh)
+    dh = (h_inf - h)/tau_h
+    return [dop,dc1,dh]
+
+def kemp_observation(t, x, theta):
+    op, c1, h = x[:3]
+    *p, g = theta[:13]
+    return g * op * h * (V(t) - EK)
+
 # get Voltage for time in ms
 def V(t):
-    return volts_intepolated((t + 900)/ 1000)
+    return volts_intepolated(t/ 1000)
 
-# # define the cost function for finding the smoothing coefficients
-# def cost_smoothing(spline_theta, theta, y, weight):
-#     coeffs_a, coeffs_r = np.split(spline_theta, 2)
-#     # collocation matrix is the fastest way to compute the whole curve at measurment points
-#     a = coeffs_a @ collocation
-#     r = coeffs_r @ collocation
-#     *ps, g = theta[:9]
-#     y_model = g * a * r * (volts_new - EK)
-#     # compute the data cost of the B-spline surface
-#     data_cost = np.transpose(y - y_model)@(y - y_model)
-#     ## model descrepancy
-#     tck_a = tuple([knots, coeffs_a, degree])
-#     tck_r = tuple([knots, coeffs_r, degree])
-#     dot_a = sp.interpolate.splev(times_q, tck_a, der=1)
-#     dot_r = sp.interpolate.splev(times_q, tck_r, der=1)
-#     fun_a = sp.interpolate.splev(times_q, tck_a, der=0)
-#     fun_r = sp.interpolate.splev(times_q, tck_r, der=0)
-#     # the derivatives must be put into an array
-#     dadr = []
-#     for it,t_q in enumerate(times_q):
-#         x = [fun_a[it],fun_r[it]]
-#         dadr.append(ion_channel_model(t_q, x, theta))
-#     rhs_theta = np.array(dadr)
-#     spline_deriv = np.transpose(np.array([dot_a, dot_r]))
-#     # compute the ode-fit cost of the B-spline surface
-#     ode_cost = np.trace(np.transpose(spline_deriv - rhs_theta)@(spline_deriv - rhs_theta))
-#     # return the regularised cost
-#     return data_cost + weight * ode_cost
-#
-# def cost_simple(spline_theta):
-#     coeffs_a, coeffs_r = np.split(spline_theta, 2)
-#     # collocation matrix is the fastest way to compute the whole curve at measurment points
-#     a = coeffs_a @ collocation
-#     r = coeffs_r @ collocation
-#     *ps, g = p_true[:9]
-#     y_model = g * a * r * (volts_new - EK)
-#     # compute the data cost of the B-spline surface
-#     data_cost = np.transpose(current - y_model)@(current - y_model)
-#     ## model descrepancy
-#     tck_a = tuple([knots, coeffs_a, degree])
-#     tck_r = tuple([knots, coeffs_r, degree])
-#     dot_a = sp.interpolate.splev(times_q, tck_a, der=1)
-#     dot_r = sp.interpolate.splev(times_q, tck_r, der=1)
-#     fun_a = sp.interpolate.splev(times_q, tck_a, der=0)
-#     fun_r = sp.interpolate.splev(times_q, tck_r, der=0)
-#     # the derivatives must be put into an array
-#     dadr = []
-#     for it,t_q in enumerate(times_q):
-#         x = [fun_a[it],fun_r[it]]
-#         dadr.append(ion_channel_model(t_q, x, p_true))
-#     rhs_theta = np.array(dadr)
-#     spline_deriv = np.transpose(np.array([dot_a, dot_r]))
-#     # compute the ode-fit cost of the B-spline surface
-#     ode_cost = np.trace(np.transpose(spline_deriv - rhs_theta)@(spline_deriv - rhs_theta))
-#     # return the regularised cost
-#     return data_cost + lambd * ode_cost
 
 # main
 if __name__ == '__main__':
@@ -122,8 +91,8 @@ if __name__ == '__main__':
     # interpolate with smaller time step (milliseconds)
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
-    tlim = [0, 3600]
-    times = np.linspace(*tlim, num=tlim[-1]+1)
+    tlim = [0, 11000]
+    times = np.linspace(*tlim, tlim[-1] - tlim[0], endpoint=False)
     ###################################################################################################################
     ## Generate data
     ## parameter values for the model
@@ -131,20 +100,29 @@ if __name__ == '__main__':
     p_true = [2.26e-4, 0.0699, 3.45e-5, 0.05462, 0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
     # initialise and solve ODE
     x0 = [0, 1]
-    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[p_true], dense_output=True, method='LSODA',rtol=1e-8, atol=1e-8)
+    solution = sp.integrate.solve_ivp(hh_model, [0,tlim[-1]], x0, args=[p_true], dense_output=True, method='LSODA',rtol=1e-8, atol=1e-8)
+    x_ar = solution.sol(times)
+    current = observation(times, x_ar, p_true)
 
+    x0_kemp = [0,1,1]
+    # params takent from Kemp et.al. Table 2 WT, conductance is taken for cell 1.
+    p_kemp = [ 8.53183002138620944e-03,  8.31760044455376601e-02,  1.26287052202195688e-02,  1.03628499834739776e-07,  2.70276339808042609e-01,  1.58000446046794897e-02,  7.66699486356391818e-02,  2.24575000694940963e-02,  1.49033896782688496e-01,  2.43156986537036227e-02,  5.58072076984100361e-04,  4.06619125485430874e-02, 8.47100572058229334e-02]
+    solution_kemp = sp.integrate.solve_ivp(kemp_model, [0,tlim[-1]], x0_kemp, args=[p_kemp], dense_output=True, method='LSODA',rtol=1e-8, atol=1e-8)
+    x_kemp = solution_kemp.sol(times)
+    current_kemp = kemp_observation(times,x_kemp,p_kemp)
+
+
+    # p_test = [2.268e-4, 0.058, 0.000141, 0.0808,  0.0873, 8.91e-3, 5.15e-3, 0.03158, 0.1524]
+    # solution_test =  sp.integrate.solve_ivp(hh_model, [0,tlim[-1]], x0, args=[p_test], dense_output=True, method='LSODA',rtol=1e-8, atol=1e-8)
+    # x_test = solution_test.sol(times)
+    # current_test = observation(times,x_test,p_test)
 
     # select times for ROI
     ROI_start = 3300
-    ROI_end = tlim[-1]
+    ROI_end = tlim[-1]-1
     ROI = range(ROI_start, ROI_end)
     # get time points to compute the fit to ODE cost
-    times_roi = times[ROI_start:ROI_end]
-    # extract states and output at the region of interest
-    x_ar = solution.sol(times_roi)
-    current = observation(times_roi, x_ar, p_true)
-
-
+    times_roi = times
     ####################################################################################################################
     ## Get the time instances when the voltage jumps
     volts_new = V(times)
@@ -154,6 +132,7 @@ if __name__ == '__main__':
     volts_roi = volts_new[ROI_start:ROI_end]
     switchpoints_roi = switchpoints[ROI_start:ROI_end]
     jump_times = [times_roi[0]] + [i+ROI_start for i, x in enumerate(switchpoints_roi) if x] + [times_roi[-1]]
+
 
     ## plot the interpolated voltage
     # fig, axes = plt.subplots(2,1)
@@ -180,29 +159,33 @@ if __name__ == '__main__':
     # plt.savefig('Figures/2nd_derivative.png')
 
     ## plot three states and the output
-    # fig, axes = plt.subplots(2, 2)
-    # axes[0, 0].plot(times, x_ar[0,:], 'b')
-    # axes[0, 0].plot(times[2:][switchpoints_new], x_ar[0,2:][switchpoints_new], 'r.')
-    # axes[0, 0].set_xlabel('times, ms')
-    # axes[0, 0].set_ylabel('a gating variable')
-    # axes[0, 0].set_xlim(tlim)
-    # axes[0, 1].plot(times, x_ar[1,:], 'b')
-    # axes[0, 1].plot(times[2:][switchpoints_new], x_ar[1,2:][switchpoints_new], 'r.')
-    # axes[0, 1].set_xlabel('times, ms')
-    # axes[0, 1].set_ylabel('r gating variable')
-    # axes[0, 1].set_xlim(tlim)
-    # axes[1, 0].plot(times, volts_new, 'b')
-    # axes[1, 0].plot(times[2:][switchpoints_new], volts_new[2:][switchpoints_new], 'r.')
-    # axes[1, 0].set_xlabel('times, ms')
-    # axes[1, 0].set_ylabel('voltage, mV')
-    # axes[1, 0].set_xlim(tlim)
-    # axes[1, 1].plot(times, current, 'b')
-    # axes[1, 1].plot(times[2:][switchpoints_new], current[2:][switchpoints_new], 'r.')
-    # axes[1, 1].set_xlabel('times, ms')
-    # axes[1, 1].set_ylabel('Current, A')
-    # axes[1, 1].set_xlim(tlim)
-    # plt.tight_layout()
-    # plt.savefig('Figures/model_states_output.png')
+    fig, axes = plt.subplots(2, 2)
+    axes[0, 0].plot(times, x_ar[0,:], 'b',label='HH')
+    axes[0, 0].plot(times, x_kemp[0, :], 'r',label='Kemp')
+    # axes[0, 0].plot(times[2:][switchpoints_roi], x_ar[0,2:][switchpoints_roi], 'r.')
+    axes[0, 0].set_xlabel('times, ms')
+    axes[0, 0].set_ylabel('a gating variable')
+    axes[0, 0].set_xlim(tlim)
+    axes[0, 1].plot(times, x_ar[1,:], 'b',label='HH')
+    axes[0, 1].plot(times, x_kemp[2, :], 'r',label='Kemp')
+    # axes[0, 1].plot(times[2:][switchpoints_roi], x_ar[1,2:][switchpoints_roi], 'r.')
+    axes[0, 1].set_xlabel('times, ms')
+    axes[0, 1].set_ylabel('r gating variable')
+    axes[0, 1].set_xlim(tlim)
+    axes[1, 0].plot(times, volts_new, 'b',label='Kemp')
+    # axes[1, 0].plot(times[2:][switchpoints_roi], volts_new[2:][switchpoints_roi], 'r.')
+    axes[1, 0].set_xlabel('times, ms')
+    axes[1, 0].set_ylabel('voltage, mV')
+    axes[1, 0].set_xlim(tlim)
+    axes[1, 1].plot(times, current, 'b',label='HH')
+    axes[1, 1].plot(times, current_kemp, 'r',label='Kemp')
+    # axes[1, 1].plot(times[2:][switchpoints_roi], current[2:][switchpoints_roi], 'r.')
+    axes[1, 1].set_xlabel('times, ms')
+    axes[1, 1].set_ylabel('Current, A')
+    axes[1, 1].set_xlim(tlim)
+    axes[1, 1].legend(fontsize=14, loc='best')
+    plt.tight_layout()
+    plt.savefig('Figures/generated_data.png')
 
     # set times of jumps and a B-spline knot sequence
     nPoints_closest = 15  # the number of points from each jump where knots are placed at the finest grid
@@ -352,7 +335,7 @@ if __name__ == '__main__':
     fun_a = sp.interpolate.splev(times_roi, tck_a, der=0)
     fun_r = sp.interpolate.splev(times_roi, tck_r, der=0)
     fun_v = sp.interpolate.splev(times_roi, tck_v, der=0)
-    dadr_all_times = ion_channel_model(times_roi, [fun_a, fun_r], p_true)
+    dadr_all_times = hh_model(times_roi, [fun_a, fun_r], p_true)
     rhs_theta = np.array(dadr_all_times)
     fig, axes = plt.subplots(3, 2, sharex=True)
     y_labels = ['a','$\dot{a}$','r','$\dot{r}$','v','$\dot{v}$']

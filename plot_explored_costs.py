@@ -11,7 +11,9 @@ plt.ioff()
 if __name__ == '__main__':
     # read all results from the file
     state_name = 'a'
-    with open("Pickles/explore_parameter_space_sequential_" + state_name + ".pkl", "rb") as input_file:
+    # method_name = 'whole'
+    method_name = 'sequential'
+    with open("Pickles/explore_parameter_space_" + method_name + "_" + state_name + ".pkl", "rb") as input_file:
         explore_costs, metadata = pkl.load(input_file)
     # load metadata
     theta_true = metadata['truth']
@@ -41,13 +43,13 @@ if __name__ == '__main__':
             if iRow == 0:
                 axes[iRow, iKey].set_ylabel(r'$J(C \mid \theta_{' + str(iKey + 1) + r'}, \bar{\mathbf{y}})$')
             else:
-                axes[iRow, iKey].set_ylabel(r'$RMSE('+state_name+r'\mid \theta_{' + str(iKey + 1) + r'} \bar{\mathbf{y}})$')
+                axes[iRow, iKey].set_ylabel(r'$RMSE('+state_name+r'\mid \theta_{' + str(iKey + 1) + r'}, \bar{\mathbf{y}})$')
             # assign legend entries only to the last sample and the truth corresponding to the first theta
             if iKey == 0 and iRow == 1:
                 lines, legend_labels = axes[iRow,iKey].get_legend_handles_labels()
                 axes[iRow,iKey].legend(lines[-3:],legend_labels[-3:],loc='best')
     plt.tight_layout(pad=0.3)
-    plt.savefig('Figures/costs_projection_inner_RMSE_' + state_name + '.png', dpi=400)
+    plt.savefig('Figures/costs_projection_inner_RMSE_' + method_name + '_' + state_name + '.png', dpi=400)
 
     nColumns = len(theta_true)
     fig, axes = plt.subplots(2, nColumns, figsize=(12, 8))
@@ -82,7 +84,7 @@ if __name__ == '__main__':
                 lines, legend_labels = axes[iRow, iKey].get_legend_handles_labels()
                 axes[iRow, iKey].legend(lines[-3:], legend_labels[-3:], loc='best')
     plt.tight_layout(pad=0.3)
-    plt.savefig('Figures/costs_projection_ODE_data_' + state_name + '.png', dpi=400)
+    plt.savefig('Figures/costs_projection_ODE_data_' + method_name + '_' + state_name + '.png', dpi=400)
 
     nColumns = len(theta_true)
     fig, axes = plt.subplots(2, nColumns, figsize=(12, 8))
@@ -117,7 +119,7 @@ if __name__ == '__main__':
                 lines, legend_labels = axes[iRow, iKey].get_legend_handles_labels()
                 axes[iRow, iKey].legend(lines[-3:], legend_labels[-3:], loc='best')
     plt.tight_layout(pad=0.3)
-    plt.savefig('Figures/costs_evals_times_' + state_name + '.png', dpi=400)
+    plt.savefig('Figures/costs_evals_times_'  + method_name + '_' + state_name + '.png', dpi=400)
 
     ####################################################################################################################
     ## uncomment this part to plot only one metric
@@ -144,4 +146,4 @@ if __name__ == '__main__':
     #         lines, legend_labels = ax.get_legend_handles_labels()
     #         ax.legend(lines[-3:], legend_labels[-3:], loc='best')
     # plt.tight_layout(pad=0.3)
-    # plt.savefig('Figures/cost_exploration_evaluations_' + state_name + '.png', dpi=400)
+    # plt.savefig('Figures/cost_exploration_evaluations_' + method_name + '_' + state_name + '.png', dpi=400)

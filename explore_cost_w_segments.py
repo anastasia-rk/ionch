@@ -168,8 +168,8 @@ if __name__ == '__main__':
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
     # tlim = [0, int(volt_times[-1]*1000)]
-    tlim = [3500, 6100]
-    times = np.linspace(*tlim, tlim[-1])
+    tlim = [1500, 11000]
+    times = np.linspace(*tlim, tlim[-1] - tlim[0], endpoint=False)
     volts_new = V(times)
     ## Generate the synthetic data
     # parameter values for the model
@@ -180,7 +180,7 @@ if __name__ == '__main__':
     state_names = ['a','r']
     # solve initial value problem
     tlim[1]+=1 #solve for a slightly longer period
-    solution = sp.integrate.solve_ivp(ion_channel_model, tlim, x0, args=[thetas_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
+    solution = sp.integrate.solve_ivp(ion_channel_model, [0,tlim[-1]], x0, args=[thetas_true], dense_output=True,method='LSODA',rtol=1e-8,atol=1e-8)
     x_ar = solution.sol(times)
     current_true = observation(times, x_ar, thetas_true)
 
@@ -191,7 +191,7 @@ if __name__ == '__main__':
     param_names = ['p_1','p_2','p_3','p_4']
     a0 = [0]
     ion_channel_model_one_state = ode_a_only
-    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, a0, args=[theta_true], dense_output=True, method='LSODA',
+    solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, [0,tlim[-1]], a0, args=[theta_true], dense_output=True, method='LSODA',
                                       rtol=1e-8, atol=1e-8)
     state_known_index = state_names.index('r')  # assume that we know r
     state_known = x_ar[state_known_index, :]
@@ -205,21 +205,17 @@ if __name__ == '__main__':
     # param_names = ['p_5','p_6','p_7','p_8']
     # r0 = [1]
     # ion_channel_model_one_state = ode_r_only
-    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, tlim, r0, args=[theta_true], dense_output=True,
+    # solution_one_state = sp.integrate.solve_ivp(ion_channel_model_one_state, [0,tlim[-1]], r0, args=[theta_true], dense_output=True,
     #                                     method='LSODA',
     #                                     rtol=1e-8, atol=1e-10)
     # state_known_index = state_names.index('a')  # assume that we know a
     # state_known = x_ar[state_known_index,:]
     # state_name = hidden_state_names= 'r'
     ################################################################################################################
-    ## boundaries of thetas from Clerx et.al. paper - they are the same for two gating variables
-    theta_lower_boundary = [np.log(10 ** (-7)), np.log(10 ** (-7)), np.log(10 ** (-7)), np.log(10 ** (-7))]
-    theta_upper_boundary = [np.log(10 ** (3)), np.log(0.4), np.log(10 ** (3)), np.log(0.4)]
-    ################################################################################################################
     ## B-spline representation setup
     # set times of jumps and a B-spline knot sequence
     nPoints_closest = 24  # the number of points from each jump where knots are placed at the finest grid
-    nPoints_between_closest = 12  # step between knots at the finest grid
+    nPoints_between_closest = 8  # step between knots at the finest grid
     nPoints_around_jump = 48  # the time period from jump on which we place medium grid
     step_between_knots = 48  # this is the step between knots around the jump in the medium grid
     nPoints_between_jumps = 2  # this is the number of knots at the coarse grid corresponding to slowly changing values
@@ -232,7 +228,7 @@ if __name__ == '__main__':
     ####################################################################################################################
     # ignore everything outside of the region of iterest
     # get the times of all jumps
-    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(switchpoints)]  # get indeces of all the switchpoints, add t0 and tend
+    a = [0] + [i for i, x in enumerate(switchpoints) if x] + [len(times)-1]  # get indeces of all the switchpoints, add t0 and tend
     # remove consecutive numbers from the list
     b = []
     for i in range(len(a)):
@@ -331,7 +327,7 @@ if __name__ == '__main__':
     init_betas = 0.5 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
     sigma0_betas = 0.2 * np.ones(nBsplineCoeffs) # sigma of inital spread of values
     Thetas_ODE = theta_true.copy()
-    print('Number of B-spline coeffs: ' + str(nBsplineCoeffs))
+    print('Number of B-spline coeffs per segment: ' + str(nBsplineCoeffs))
     nOutputs = 3
     # define a class that outputs only b-spline surface features - we need it to compute outer cost
     class bsplineOutputTest(pints.ForwardModel):
@@ -383,11 +379,11 @@ if __name__ == '__main__':
             return data_fit_cost + lambd * gradient_match_cost
     ####################################################################################################################
     # try optimising several segments
-    nRuns = 9
+    nRuns = 5
     cost_threshold = 10**(-3)
     # store the true state
-    times_of_segments = np.hstack(times_roi[:len(times_roi)])
-    state_hidden_true = solution_one_state.sol(times_of_segments)[0, :]
+    # times_of_segments = np.hstack(times_roi[:len(times_roi)])
+    state_hidden_true = solution_one_state.sol(times)[0, :]
     states_of_segments_known = np.hstack(states_known_roi[:len(times_roi) + 1])
     ###############################################################################################################
     # ## compute the costs for the parameters
@@ -397,375 +393,229 @@ if __name__ == '__main__':
     explore_costs = dict.fromkeys(keys)
     key_counter = 0
     model_bsplines_test = bsplineOutputTest()
-    direction_settings = [{'direction':'positive','includes_truth': True},{'direction':'negative','includes_truth': False}]
+    directions = ['positive','negative']
     # check all parameter values within range (mu, mu+3sigma)
     for iTheta, theta in enumerate(theta_true[:]):
         print('iTheta = ' + str(iTheta+1) + ', true value = ' + str(theta))
         Thetas_ODE = theta_true.copy()
-        range_theta_plus = np.linspace(theta, theta + 3 * sigma, nSamples)
-        inner_cost_plus = []
-        outer_cost_plus = []
-        grad_cost_plus = []
-        RMSE_plus = []
-        evaluations_plus = []
-        runtimes_plus = []
-        thetas_checked_plus = []
-        v = []
-        optimisationFailed = False # crete a flag that is raised when we catch any exception during the optimisation
-        ## (might be divergent if we move too far away from the truth
-        for iSample, theta_changed in enumerate(range_theta_plus):
-            tic_sample = tm.time()
-            Thetas_ODE[iTheta] = theta_changed.copy()
-            # run the optimisation several times to assess the success rate
-            betas_sample = []
-            inner_costs_sample = []
-            outer_costs_sample = []
-            grad_costs_sample = []
-            evaluations_sample = []
-            runtimes_sample = []
-            fitted_state_sample = []
-            RMSE_sample = []
-            sucsess_rate_sample = []
-            for iRun in range(nRuns):
-                # placeholders for storing metrics per run
-                betas_run = []
-                inner_costs_run = []
-                outer_costs_run = []
-                grad_costs_run = []
-                evaluations_run = []
-                *ps, g = thetas_true
-                end_of_roi = []
-                state_fitted_roi = {key: [] for key in state_names}
-                tic_run = tm.time()
-                for iSegment in range(1):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    support_segment = knots_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # initialise inner optimisation
-                    init_betas = init_betas_roi[iSegment]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment, input_segment,
-                                                                                            output_segment,
-                                                                                            support_segment,
-                                                                                            state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break  # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment, support_segment, segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    current_model_at_estimatete = g * state_at_estimate[:,0] * state_known_segment * (input_segment - EK)
-                    dy = (current_model_at_estimatete - output_segment)
-                    d_deriv = np.square(np.subtract(deriv_at_estimate,rhs_at_estimate))
-                    integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-                    # compute outer cost and gradient matching cost
-                    gradient_cost_segment = np.sum(integral_quad, axis=0)
-                    outer_cost_segment = dy @ np.transpose(dy)
-                    # add all costs and performance metrics to store for the run
-                    evaluations_run.append(evals_segment)
-                    betas_run.append(betas_segment)
-                    inner_costs_run.append(inner_cost_segment)
-                    outer_costs_run.append(outer_cost_segment)
-                    grad_costs_run.append(gradient_cost_segment)
-                    # save the final value of the segment
-                    end_of_roi.append(state_at_estimate[-1,:])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[:,iState])
-                ####################################################################################################################
-                #  optimise the following segments by matching the first B-spline height to the previous segment
-                for iSegment in range(1,len(times_roi)):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    support_segment = knots_roi[iSegment]
-                    collocation_segment = collocation_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
-                    first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
-                    # initialise inner optimisation
-                    # we must re-initalise the optimisation with that excludes the first coefficient
-                    init_betas = init_betas_roi[iSegment][1:]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - 1) # inital spread of values
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
-                                                                                            output_segment,
-                                                                                            support_segment,
-                                                                                            state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break  # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment,support_segment,segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    current_model_at_estimatete = g * state_at_estimate[:,0] * state_known_segment * (input_segment - EK)
-                    dy = (current_model_at_estimatete - output_segment)
-                    d_deriv = np.square(np.subtract(deriv_at_estimate, rhs_at_estimate))
-                    integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-                    # compute outer cost and gradient matching cost
-                    gradient_cost_segment = np.sum(integral_quad, axis=0)
-                    outer_cost_segment = dy @ np.transpose(dy)
-                    # add all costs and performance metrics to store for the run
-                    evaluations_run.append(evals_segment)
-                    betas_run.append(betas_segment)
-                    inner_costs_run.append(inner_cost_segment)
-                    outer_costs_run.append(outer_cost_segment)
-                    grad_costs_run.append(gradient_cost_segment)
-                    # store end of segment and the whole state for the
-                    end_of_roi.append(state_at_estimate[-1,:])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[:,iState])
-                #### end of loop over segments
-                ####################################################################################################################
-                toc_run = tm.time()
-                if optimisationFailed:
-                    print(str(iRun + 1) + '-th run failed.')
-                    break # runs
-                print(str(iRun+1) +'-th run complete. Total evaluations: ' + str(sum(evaluations_run)) + '. Total runtime: ' + str(toc_run-tic_run) + ' s.' )
-                states_of_segments_hidden = state_fitted_roi[state_name]
-                # compute the prediction error
-                MSE = np.square(np.subtract(state_hidden_true, states_of_segments_hidden)).mean()
-                RMSE = np.sqrt(MSE)
-                # see how many segments were fitted with the cost lower than threshold
-                success_rate =  sum([1 for i, cost in enumerate(inner_costs_run) if cost < cost_threshold])/len(inner_costs_run)
-                # store results of the run
-                betas_sample.append(betas_run)
-                inner_costs_sample.append(inner_costs_run)
-                outer_costs_sample.append(outer_costs_run)
-                grad_costs_sample.append(grad_costs_run)
-                evaluations_sample.append(evaluations_run)
-                runtimes_sample.append(toc_run-tic_run)
-                fitted_state_sample.append(states_of_segments_hidden)
-                RMSE_sample.append(RMSE)
-                sucsess_rate_sample.append(success_rate)
-                ### end loop over segments
-            ## end of loop over runs
-            toc_sample = tm.time()
-            if optimisationFailed:
-                print('Optimisation at the sampled value = ' + str(theta) + ' failed. Exploration in this direction is stopped.')
-                break  # sample exploration
-            total_inner_cost_sample = [sum(list) for list in inner_costs_sample]
-            total_outer_cost_sample = [sum(list) for list in outer_costs_sample]
-            total_grad_cost_sample = [sum(list) for list in grad_costs_sample]
-            total_evals_sample = [sum(list) for list in evaluations_sample]
-            # store all cost values in lists for this particular value of theta
-            inner_cost_plus.append(total_inner_cost_sample)
-            outer_cost_plus.append(total_outer_cost_sample)
-            grad_cost_plus.append(total_grad_cost_sample)
-            RMSE_plus.append(RMSE_sample)
-            evaluations_plus.append(total_evals_sample)
-            runtimes_plus.append(runtimes_sample)
-            thetas_checked_plus.append(theta_changed)
-            # print output for the checked value
-            print('Value checked: ' + str(theta_changed) + '. Average inner cost across ' + str(nRuns) + ' runs: ' + str(
-                np.mean(total_inner_cost_sample)) + '. Number of evaluations: ' + str(sum(total_evals_sample)) + '. Elapsed time: ' + str(
-                toc_sample - tic_sample) + 's.')
-            # find the best Betas out of several runs based on the inner cost]
-            index_best_betas = total_inner_cost_sample.index(min(total_inner_cost_sample))
-            # assign values at this index as the initial values for the neighbouring point in the ODE parameter space
-            init_betas_roi = betas_sample[index_best_betas]
-            # if it is evaluated at the true value of the parameter, save the initial betas to be used in (mu-3sigma,mu) interval
-            if iSample == 0:
-                init_betas_at_truth = betas_sample[index_best_betas]
-        ## end of loop over values of a single theta in unknonw parameters
-        print('Change of direction w.r.t. truth')
-        ## now check the values in the opposite direction from the truth
-        range_theta_minus = np.linspace(theta, theta - 3 * sigma, nSamples)
-        inner_cost_minus = []
-        outer_cost_minus = []
-        grad_cost_minus = []
-        RMSE_minus = []
-        evaluations_minus = []
-        runtimes_minus = []
-        thetas_checked_minus = []
-        # reinitialise at the solution obtained at the truth
-        init_betas_roi = init_betas_at_truth.copy()
-        optimisationFailed = False  # crete a flag that is raised when we catch any exception during the optimisation
-        ## (might be divergent if we move too far away from the truth
-        for iSample, theta_changed in enumerate(range_theta_minus[1:]): # skip the minima as we have already evaluated it
-            tic_sample = tm.time()
-            Thetas_ODE[iTheta] = theta_changed.copy()
-            # run the optimisation several times to assess the success rate
-            betas_sample = []
-            inner_costs_sample = []
-            outer_costs_sample = []
-            grad_costs_sample = []
-            evaluations_sample = []
-            runtimes_sample = []
-            fitted_state_sample = []
-            RMSE_sample = []
-            sucsess_rate_sample = []
-            for iRun in range(nRuns):
-                # placeholders for storing metrics per run
-                betas_run = []
-                inner_costs_run = []
-                outer_costs_run = []
-                grad_costs_run = []
-                evaluations_run = []
-                *ps, g = thetas_true
-                end_of_roi = []
-                state_fitted_roi = {key: [] for key in state_names}
-                tic_run = tm.time()
-                for iSegment in range(1):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    support_segment = knots_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # initialise inner optimisation
-                    init_betas = init_betas_roi[iSegment]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment, input_segment,
-                                                                                            output_segment,
-                                                                                            support_segment,
-                                                                                            state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break  # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment, support_segment, segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    current_model_at_estimatete = g * state_at_estimate[:, 0] * state_known_segment * (
-                                input_segment - EK)
-                    dy = (current_model_at_estimatete - output_segment)
-                    d_deriv = np.square(np.subtract(deriv_at_estimate, rhs_at_estimate))
-                    integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-                    # compute outer cost and gradient matching cost
-                    gradient_cost_segment = np.sum(integral_quad, axis=0)
-                    outer_cost_segment = dy @ np.transpose(dy)
-                    # add all costs and performance metrics to store for the run
-                    evaluations_run.append(evals_segment)
-                    betas_run.append(betas_segment)
-                    inner_costs_run.append(inner_cost_segment)
-                    outer_costs_run.append(outer_cost_segment)
-                    grad_costs_run.append(gradient_cost_segment)
-                    # save the final value of the segment
-                    end_of_roi.append(state_at_estimate[-1, :])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
-                ####################################################################################################################
-                #  optimise the following segments by matching the first B-spline height to the previous segment
-                for iSegment in range(1, len(times_roi)):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    support_segment = knots_roi[iSegment]
-                    collocation_segment = collocation_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
-                    first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
-                    # initialise inner optimisation
-                    # we must re-initalise the optimisation with that excludes the first coefficient
-                    init_betas = init_betas_roi[iSegment][1:]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - 1)  # inital spread of values
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
-                                                                                        output_segment, support_segment,state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment, support_segment, segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    current_model_at_estimatete = g * state_at_estimate[:, 0] * state_known_segment * (
-                                input_segment - EK)
-                    dy = (current_model_at_estimatete - output_segment)
-                    d_deriv = np.square(np.subtract(deriv_at_estimate, rhs_at_estimate))
-                    integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-                    # compute outer cost and gradient matching cost
-                    gradient_cost_segment = np.sum(integral_quad, axis=0)
-                    outer_cost_segment = dy @ np.transpose(dy)
-                    # add all costs and performance metrics to store for the run
-                    evaluations_run.append(evals_segment)
-                    betas_run.append(betas_segment)
-                    inner_costs_run.append(inner_cost_segment)
-                    outer_costs_run.append(outer_cost_segment)
-                    grad_costs_run.append(gradient_cost_segment)
-                    # store end of segment and the whole state for the
-                    end_of_roi.append(state_at_estimate[-1, :])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
-                #### end of loop over segments
-                ####################################################################################################################
-                toc_run = tm.time()
-                if optimisationFailed:
-                    print(str(iRun + 1) + '-th run failed.')
-                    break # runs
-                print(str(iRun + 1) + '-th run complete. Total evaluations: ' + str(
-                    sum(evaluations_run)) + '. Total runtime: ' + str(toc_run - tic_run) + ' s.')
-                states_of_segments_hidden = state_fitted_roi[state_name]
-                # compute the prediction error
-                MSE = np.square(np.subtract(state_hidden_true, states_of_segments_hidden)).mean()
-                RMSE = np.sqrt(MSE)
-                # see how many segments were fitted with the cost lower than threshold
-                success_rate = sum([1 for i, cost in enumerate(inner_costs_run) if cost < cost_threshold]) / len(
-                    inner_costs_run)
-                # store results of the run
-                betas_sample.append(betas_run)
-                inner_costs_sample.append(inner_costs_run)
-                outer_costs_sample.append(outer_costs_run)
-                grad_costs_sample.append(grad_costs_run)
-                evaluations_sample.append(evaluations_run)
-                runtimes_sample.append(toc_run - tic_run)
-                fitted_state_sample.append(states_of_segments_hidden)
-                RMSE_sample.append(RMSE)
-                sucsess_rate_sample.append(success_rate)
-                ### end loop over segments
-            ## end of loop over runs
-            toc_sample = tm.time()
-            if optimisationFailed:
-                print('Optimisation at the sampled value = ' + str(theta) + ' failed. Exploration in this direction is stopped.')
-                break # sample exploration
-            total_inner_cost_sample = [sum(list) for list in inner_costs_sample]
-            total_outer_cost_sample = [sum(list) for list in outer_costs_sample]
-            total_grad_cost_sample = [sum(list) for list in grad_costs_sample]
-            total_evals_sample = [sum(list) for list in evaluations_sample]
-            # store all cost values in lists for this particular value of theta
-            inner_cost_minus.append(total_inner_cost_sample)
-            outer_cost_minus.append(total_outer_cost_sample)
-            grad_cost_minus.append(total_grad_cost_sample)
-            RMSE_minus.append(RMSE_sample)
-            evaluations_minus.append(total_evals_sample)
-            runtimes_minus.append(runtimes_sample)
-            thetas_checked_minus.append(theta_changed)
-            # print output for the checked value
-            print(
-                'Value checked: ' + str(theta_changed) + '. Average inner cost across ' + str(nRuns) + ' runs: ' + str(
-                    np.mean(total_inner_cost_sample)) + '. Number of evaluations: ' + str(sum(
-                    total_evals_sample)) + '. Elapsed time: ' + str(
+        inner_cost_direction = [[], []]
+        outer_cost_direction = [[], []]
+        grad_cost_direction = [[], []]
+        RMSE_direction = [[], []]
+        evaluations_direction = [[], []]
+        runtimes_direction = [[], []]
+        thetas_checked_direction = [[], []]
+        # explore two directions from the truth
+        for iDir, direction in enumerate(directions):
+            if direction == 'positive':
+                range_theta_direction = np.linspace(theta, theta + 3 * sigma, nSamples)
+                print('explore positive direction from the truth')
+                iPositive  = iDir
+            elif direction == 'negative':
+                range_theta_direction = np.linspace(theta, theta - 3 * sigma, nSamples)
+                print('explore negative direction from the truth')
+                # reinitialise at the solution obtained at the truth for the negative direction
+                init_betas_roi = init_betas_at_truth.copy()
+                iNegative = iDir
+            else:
+                print('Error with direction settings. Check that you specified all directions you wish to explore correctly')
+            if iDir > 0:
+                # when we explore negative direction, there is no need to evaluate at truth again
+                range_theta_direction_check = np.delete(range_theta_direction, 0)
+            optimisationFailed = False  # crete a flag that is raised when we catch any exception during the optimisation
+            ## (might be divergent if we move too far away from the truth
+            for iSample, theta_changed in enumerate(range_theta_direction):
+                tic_sample = tm.time()
+                Thetas_ODE[iTheta] = theta_changed.copy()
+                # run the optimisation several times to assess the success rate
+                betas_sample = []
+                inner_costs_sample = []
+                outer_costs_sample = []
+                grad_costs_sample = []
+                evaluations_sample = []
+                runtimes_sample = []
+                fitted_state_sample = []
+                RMSE_sample = []
+                sucsess_rate_sample = []
+                runFailed = [False] * nRuns
+                for iRun in range(nRuns):
+                    # placeholders for storing metrics per run
+                    betas_run = []
+                    inner_costs_run = []
+                    outer_costs_run = []
+                    grad_costs_run = []
+                    evaluations_run = []
+                    *ps, g = thetas_true
+                    end_of_roi = []
+                    state_fitted_roi = {key: [] for key in state_names}
+                    tic_run = tm.time()
+                    for iSegment in range(1):
+                        segment = times_roi[iSegment]
+                        input_segment = voltage_roi[iSegment]
+                        output_segment = current_roi[iSegment]
+                        support_segment = knots_roi[iSegment]
+                        state_known_segment = states_known_roi[iSegment]
+                        # initialise inner optimisation
+                        init_betas = init_betas_roi[iSegment]
+                        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
+                        try:
+                            betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment,
+                                                                                                      input_segment,
+                                                                                                      output_segment,
+                                                                                                      support_segment,
+                                                                                                      state_known_segment)
+                        except:
+                            print('Error encountered during opptimisation.')
+                            runFailed[iRun] = True
+                            break  # segments
+                        else:
+                            # check collocation solution against truth
+                            model_output = model_bsplines_test.simulate(betas_segment, support_segment, segment)
+                            state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
+                            current_model_at_estimatete = g * state_at_estimate[:, 0] * state_known_segment * (
+                                    input_segment - EK)
+                            dy = (current_model_at_estimatete - output_segment)
+                            d_deriv = np.square(np.subtract(deriv_at_estimate, rhs_at_estimate))
+                            integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
+                            # compute outer cost and gradient matching cost
+                            gradient_cost_segment = np.sum(integral_quad, axis=0)
+                            outer_cost_segment = dy @ np.transpose(dy)
+                        # add all costs and performance metrics to store for the run
+                        evaluations_run.append(evals_segment)
+                        betas_run.append(betas_segment)
+                        inner_costs_run.append(inner_cost_segment)
+                        outer_costs_run.append(outer_cost_segment)
+                        grad_costs_run.append(gradient_cost_segment)
+                        # save the final value of the segment
+                        end_of_roi.append(state_at_estimate[-1, :])
+                        for iState, stateName in enumerate(hidden_state_names):
+                            state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
+                    ####################################################################################################################
+                    #  optimise the following segments by matching the first B-spline height to the previous segment
+                    for iSegment in range(1, len(times_roi)):
+                        segment = times_roi[iSegment]
+                        input_segment = voltage_roi[iSegment]
+                        output_segment = current_roi[iSegment]
+                        support_segment = knots_roi[iSegment]
+                        collocation_segment = collocation_roi[iSegment]
+                        state_known_segment = states_known_roi[iSegment]
+                        # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
+                        first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
+                        # initialise inner optimisation
+                        # we must re-initalise the optimisation with that excludes the first coefficient
+                        init_betas = init_betas_roi[iSegment][1:]
+                        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - 1)  # inital spread of values
+                        try:
+                            betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
+                                                                                                output_segment,
+                                                                                                support_segment,
+                                                                                                state_known_segment)
+                        except:
+                            print('Error encountered during opptimisation.')
+                            runFailed[iRun] = True
+                            break  # segments
+                        else:
+                            # check collocation solution against truth
+                            model_output = model_bsplines_test.simulate(betas_segment, support_segment, segment)
+                            state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
+                            current_model_at_estimatete = g * state_at_estimate[:, 0] * state_known_segment * (
+                                    input_segment - EK)
+                            dy = (current_model_at_estimatete - output_segment)
+                            d_deriv = np.square(np.subtract(deriv_at_estimate, rhs_at_estimate))
+                            integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
+                            # compute outer cost and gradient matching cost
+                            gradient_cost_segment = np.sum(integral_quad, axis=0)
+                            outer_cost_segment = dy @ np.transpose(dy)
+                        # add all costs and performance metrics to store for the run
+                        evaluations_run.append(evals_segment)
+                        betas_run.append(betas_segment)
+                        inner_costs_run.append(inner_cost_segment)
+                        outer_costs_run.append(outer_cost_segment)
+                        grad_costs_run.append(gradient_cost_segment)
+                        # store end of segment and the whole state for the
+                        end_of_roi.append(state_at_estimate[-1, :])
+                        for iState, stateName in enumerate(hidden_state_names):
+                            state_fitted_roi[stateName] += list(state_at_estimate[1:, iState])
+                    #### end of loop over segments
+                    ####################################################################################################################
+                    toc_run = tm.time()
+                    if runFailed[iRun]:
+                        print(str(iRun + 1) + '-th run failed.')
+                        betas_run = np.zeros_like(init_betas)
+                        states_of_segments_hidden = np.nan
+                        inner_cost_run = outer_cost_run = gradient_cost_run = evaluations_run = [np.nan]*len(times_roi)
+                        RMSE = np.nan
+                    else:
+                        print(str(iRun + 1) + '-th run complete. Total evaluations: ' + str(
+                        sum(evaluations_run)) + '. Total runtime: ' + str(toc_run - tic_run) + ' s.')
+                        states_of_segments_hidden = state_fitted_roi[state_name]
+                        # compute the prediction error for the whole state
+                        MSE = np.square(np.subtract(state_hidden_true, states_of_segments_hidden)).mean()
+                        RMSE = np.sqrt(MSE)
+                    ## end the check if any run has failed
+                    # store results of the run
+                    betas_sample.append(betas_run)
+                    inner_costs_sample.append(inner_costs_run)
+                    outer_costs_sample.append(outer_costs_run)
+                    grad_costs_sample.append(grad_costs_run)
+                    evaluations_sample.append(evaluations_run)
+                    runtimes_sample.append(toc_run - tic_run)
+                    fitted_state_sample.append(states_of_segments_hidden)
+                    RMSE_sample.append(RMSE)
+                    ### end loop over segments
+                ## end of loop over runs
+                toc_sample = tm.time()
+                if all(runFailed):
+                    print('Optimisation at the sampled value = ' + str(
+                        theta_changed) + ' failed for all runs. Exploration in this direction is stopped.')
+                    break  # sample exploration
+                total_inner_cost_sample = [sum(list) for list in inner_costs_sample]
+                total_outer_cost_sample = [sum(list) for list in outer_costs_sample]
+                total_grad_cost_sample = [sum(list) for list in grad_costs_sample]
+                total_evals_sample = [sum(list) for list in evaluations_sample]
+                # store all cost values in lists for this particular value of theta
+                inner_cost_direction[iDir].append(total_inner_cost_sample)
+                outer_cost_direction[iDir].append(total_outer_cost_sample)
+                grad_cost_direction[iDir].append(total_grad_cost_sample)
+                RMSE_direction[iDir].append(RMSE_sample)
+                evaluations_direction[iDir].append(total_evals_sample)
+                runtimes_direction[iDir].append(runtimes_sample)
+                thetas_checked_direction[iDir].append(theta_changed)
+                # print output for the checked value
+                print('Value checked: ' + str(theta_changed) + '. Average inner cost across ' + str(
+                    nRuns) + ' runs: ' + str(
+                    np.nanmean(total_inner_cost_sample)) + '. Number of evaluations: ' + str(
+                    sum(total_evals_sample)) + '. Elapsed time: ' + str(
                     toc_sample - tic_sample) + 's.')
-            # find the best Betas out of several runs based on the inner cost]
-            index_best_betas = total_inner_cost_sample.index(min(total_inner_cost_sample))
-            # assign values at this index as the initial values for the neighbouring point in the ODE parameter space
-            init_betas_roi = betas_sample[index_best_betas]
-        ## end of loop over parameter values
-        print('Both directions explored for theta_'+str(iTheta+1))
-        # combine lists to get the interval (mu-3sigma, mu+3sigma)
-        # reversing of lists is done in place so has to be a separate function
-        inner_cost_minus.reverse()
-        outer_cost_minus.reverse()
-        grad_cost_minus.reverse()
-        RMSE_minus.reverse()
-        evaluations_minus.reverse()
-        runtimes_minus.reverse()
-        thetas_checked_minus.reverse()
-        #
-        # range_theta = list(np.flip(range_theta_minus[1:])) + list(range_theta_plus)
-        range_theta = thetas_checked_minus + thetas_checked_plus
-        inner_cost_store = inner_cost_minus + inner_cost_plus
-        outer_cost_store = outer_cost_minus + outer_cost_plus
-        grad_cost_store = grad_cost_minus + grad_cost_plus
-        RMSE_store = RMSE_minus + RMSE_plus
-        evaluations_store = evaluations_minus + evaluations_plus
-        runtimes_store = runtimes_minus + runtimes_plus
-
+                # find the best Betas out of several runs based on the inner cost]
+                index_best_betas = total_inner_cost_sample.index(np.nanmin(total_inner_cost_sample))
+                # assign values at this index as the initial values for the neighbouring point in the ODE parameter space
+                init_betas_roi = betas_sample[index_best_betas]
+                # if it is evaluated at the true value of the parameter, save the initial betas to be used in (mu-3sigma,mu) interval
+                if iSample == 0 & iDir == 0:
+                    init_betas_at_truth = betas_sample[index_best_betas]
+            ## end of loop over values of a single theta in unknonw parameters
+            ############################################################################################################
+            #if the exploration direction was negative, we reverse the list of stored values in case we need to
+            # plot anything as a function of monotonously increasing theta
+            if direction == 'negative':
+                inner_cost_direction[iDir].reverse()
+                outer_cost_direction[iDir].reverse()
+                grad_cost_direction[iDir].reverse()
+                RMSE_direction[iDir].reverse()
+                evaluations_direction[iDir].reverse()
+                runtimes_direction[iDir].reverse()
+                thetas_checked_direction[iDir].reverse()
+        #end exploring in both directions
+        print('Both directions explored for theta_' + str(iTheta + 1))
+        # store all results for plotting
+        range_theta = thetas_checked_direction[iNegative] + thetas_checked_direction[iPositive]
+        inner_cost_store = inner_cost_direction[iNegative] + inner_cost_direction[iPositive]
+        outer_cost_store = outer_cost_direction[iNegative] + outer_cost_direction[iPositive]
+        grad_cost_store = grad_cost_direction[iNegative] + grad_cost_direction[iPositive]
+        RMSE_store = RMSE_direction[iNegative] + RMSE_direction[iPositive]
+        evaluations_store = evaluations_direction[iNegative] + evaluations_direction[iPositive]
+        runtimes_store = runtimes_direction[iNegative] + runtimes_direction[iPositive]
         # store best run indeces
         best_run_index = []
         for iPoint in range(len(range_theta)):
@@ -779,7 +629,7 @@ if __name__ == '__main__':
     # save all results to file
     metadata = {'times': times, 'lambda': lambd, 'state_name': state_name, 'state_true': state_hidden_true,
                 'state_known': state_known,
-                'knots': knots, 'truth': theta_true, 'param_names': param_names, 'nruns': nRuns, 'param_names': param_names, 'log_scaled': inLogScale}
+                'knots': knots_roi, 'truth': theta_true, 'param_names': param_names, 'nruns': nRuns, 'param_names': param_names, 'log_scaled': inLogScale}
     with open("Pickles/explore_parameter_space_sequential_" + state_name + ".pkl", "wb") as output_file:
         pkl.dump([explore_costs, metadata], output_file)
 
