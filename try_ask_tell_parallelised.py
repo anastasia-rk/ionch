@@ -2,9 +2,9 @@
 import numpy as np
 
 from setup import *
-import pints
 import multiprocessing as mp
 from itertools import repeat
+import traceback
 matplotlib.use('AGG')
 plt.ioff()
 
@@ -58,7 +58,7 @@ def ode_r_only(t, x, theta):
     dr = (r_inf - r) / tau_r
     return dr
 
-def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
+def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi,init_betas, sigma0_betas):
     nOutputs = 3
     # define a class that outputs only b-spline surface features
     class bsplineOutputSegment(pints.ForwardModel):
@@ -84,11 +84,10 @@ def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi)
     values_to_match_output_dims = np.transpose(np.array([output_roi, input_roi, state_known_roi]))
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
     error_inner = InnerCriterion(problem=problem_inner)
-    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
+    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), upper_bound_beta * np.ones_like(init_betas))
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
                                                    boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
-    # optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
     optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
     optimiser_inner.set_parallel(False)
     optimiser_inner.set_log_to_screen(False)
@@ -96,7 +95,7 @@ def optimise_first_segment(roi,input_roi,output_roi,support_roi,state_known_roi)
     nEvaluations = optimiser_inner._evaluations
     return betas_roi, cost_roi, nEvaluations
 
-def optimise_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
+def optimise_segment(roi,input_roi,output_roi,support_roi,state_known_roi,init_betas, sigma0_betas, first_spline_coeff):
     nOutputs = 3
     # define a class that outputs only b-spline surface features
     class bsplineOutputSegment(pints.ForwardModel):
@@ -123,7 +122,7 @@ def optimise_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
     values_to_match_output_dims = np.transpose(np.array([output_roi, input_roi, state_known_roi]))
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
     error_inner = InnerCriterion(problem=problem_inner)
-    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
+    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), upper_bound_beta * np.ones_like(init_betas))
     optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
                                                    boundaries=boundaries_betas, method=pints.CMAES)
     optimiser_inner.set_max_iterations(30000)
@@ -135,6 +134,90 @@ def optimise_segment(roi,input_roi,output_roi,support_roi,state_known_roi):
     nEvaluations = optimiser_inner._evaluations
     coeffs_with_first = np.insert(betas_roi,0,first_spline_coeff)
     return coeffs_with_first, cost_roi, nEvaluations
+
+# define inner optimisation as a function to parallelise the CMA-ES
+def inner_optimisation(theta, times_roi, voltage_roi, current_roi, knots_roi, states_known_roi, init_betas_roi):
+    # assign the variable that is readable in the class of B-spline evaluation
+    global Thetas_ODE # declrae the global variable to be used in classess across all functions
+    Thetas_ODE = theta.copy()
+    # fit the b-spline surface given the sampled value of the ODE parameter vector
+    betas_sample = []
+    inner_costs_sample = []
+    end_of_roi = []
+    state_fitted_roi = {key: [] for key in hidden_state_names}
+    for iSegment in range(1):
+        segment = times_roi[iSegment]
+        input_segment = voltage_roi[iSegment]
+        output_segment = current_roi[iSegment]
+        knots = knots_roi[iSegment]
+        state_known_segment = states_known_roi[iSegment]
+        # initialise inner optimisation
+        init_betas = init_betas_roi[iSegment]
+        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
+        try:
+            betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment,
+                                                                                      input_segment,
+                                                                                      output_segment,
+                                                                                      knots,
+                                                                                      state_known_segment, init_betas, sigma0_betas)
+        except Exception:
+            traceback.print_exc()
+            print('Error encountered during optimisation.')
+            optimisationFailed = True
+            return (np.NaN,np.NaN,np.NaN) # return dummy values
+        else:
+            # check collocation solution against truth
+            model_output = model_bsplines_test.simulate(betas_segment, knots, segment)
+            state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
+            # add all costs and performance metrics to store for the run
+            betas_sample.append(betas_segment)
+            inner_costs_sample.append(inner_cost_segment)
+            # save the final value of the segment
+            end_of_roi.append(state_at_estimate[-1, :])
+            for iState, stateName in enumerate(hidden_state_names):
+                state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
+    ####################################################################################################################
+    #  optimise the following segments by matching the first B-spline height to the previous segment
+    for iSegment in range(1, len(times_roi)):
+        segment = times_roi[iSegment]
+        input_segment = voltage_roi[iSegment]
+        output_segment = current_roi[iSegment]
+        knots = knots_roi[iSegment]
+        collocation_segment = collocation_roi[iSegment]
+        state_known_segment = states_known_roi[iSegment]
+        # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
+        first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
+        # initialise inner optimisation
+        # we must re-initalise the optimisation with that excludes the first coefficient
+        init_betas = init_betas_roi[iSegment]
+        # drop every nth coefficient from this list that corresponds to the first b-spline for each state
+        init_betas = np.delete(init_betas, indeces_to_drop)
+        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - len(hidden_state_names))  # inital spread of values
+        try:
+            betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
+                                                                                output_segment,
+                                                                                knots,
+                                                                                state_known_segment,init_betas, sigma0_betas, first_spline_coeff)
+        except Exception:
+            traceback.print_exc()
+            print('Error encountered during opptimisation.')
+            optimisationFailed = True
+            return (np.NaN,np.NaN,np.NaN) # return dummy values
+        # check collocation solution against truth
+        else:
+            model_output = model_bsplines_test.simulate(betas_segment, knots, segment)
+            state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
+            # add all costs and performance metrics to store for the run
+            betas_sample.append(betas_segment)
+            inner_costs_sample.append(inner_cost_segment)
+            # store end of segment and the whole state for the
+            end_of_roi.append(state_at_estimate[-1, :])
+            for iState, stateName in enumerate(hidden_state_names):
+                state_fitted_roi[stateName] += list(state_at_estimate[1:, iState])
+
+    result = (betas_sample, inner_costs_sample, state_fitted_roi)
+    return result
+
 
 class BoundariesOneState(pints.Boundaries):
     """
@@ -275,7 +358,7 @@ if __name__ == '__main__':
                                         rtol=1e-8, atol=1e-10)
     state_known_index = state_names.index('a')  # assume that we know a
     state_known = x_ar[state_known_index,:]
-    state_name = hidden_state_names= 'r'
+    state_name = hidden_state_names = 'r'
     ################################################################################################################
     ## store true hidden state
     state_hidden_true = x_ar[state_names.index(state_name), :]
@@ -308,6 +391,7 @@ if __name__ == '__main__':
             if a[i] > a[i - 1] + 1:  # for every value of a, we compare the last digit from list b
                 b.append(a[i])
     jump_indeces = b.copy()
+    print('V jump indeces:', jump_indeces)
     ## create multiple segments limited by time instances of jumps
     times_roi = []
     states_roi = []
@@ -385,13 +469,26 @@ if __name__ == '__main__':
         # create inital values of beta to be used at the true value of parameters
         init_betas_roi.append(0.5 * np.ones_like(coeffs))
     ##^ this loop stores the time intervals from which to draw collocation points and the data for piece-wise fitting # this to be used in params method of class ForwardModel
-    nBsplineCoeffs = len(coeffs)
+    ####################################################################################################################
+    ## make indexing of B-spline coeffs generalisable for a set number of hidden states
+    nBsplineCoeffs = len(coeffs) * len(hidden_state_names)  # this is the number of splinese per segment!
     print('Number of B-spline coeffs per segment: ' + str(nBsplineCoeffs))
+    ## create a list of indeces to insert first B-spline coeffs for each segment
+    indeces_to_add = [0]
+    for iState in range(1, len(hidden_state_names)):
+        indeces_to_add.append((len(coeffs) - 1) * iState)
+    ## create a list of indeces to drop from the B-spline coeff sets for each segment
+    indeces_to_drop = [0]
+    for iState in range(1, len(hidden_state_names)):
+        indeces_to_drop.append(int(len(coeffs) * iState))
+    upper_bound_beta = 0.9999
+    ####################################################################################################################
+    # define classes for the optimisation
     nOutputs = 3
     # define a class that outputs only b-spline surface features
     class bsplineOutput(pints.ForwardModel):
         # this model outputs the discrepancy to be used in a rectangle quadrature scheme
-        def simulate(self, parameters, times):
+        def simulate(self, parameters, knots, times):
             # given times and return the simulated values
             tck = (knots, parameters, degree)
             dot_ = sp.interpolate.splev(times, tck, der=1)
@@ -511,107 +608,23 @@ if __name__ == '__main__':
     sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
     tic = tm.time()
     model_bsplines = bsplineOutput()
-    ## create the problem of comparing the modelled current with measured current
-    values_to_match_output_dims = np.transpose(np.array([current_true, voltage, state_known]))
-    #^ we actually only need first two columns in this array but pints wants to have the same number of values and outputs
-    problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=times, values=values_to_match_output_dims)
-     ## associate the cost with it
-    error_inner = InnerCriterion(problem=problem_inner)
-    ##  define boundaries for the inner optimisation
-    boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), np.ones_like(init_betas))
-    ## define boundaries for the outer optimisation
     ####################################################################################################################
     # fit states at the true ODE param values to get the baseline value
     Thetas_ODE = theta_true.copy()
-    # fit the b-spline surface given the sampled value of the ODE parameter vector
-    betas_sample = []
-    inner_costs_sample = []
-    end_of_roi = []
-    state_fitted_roi = {key: [] for key in state_names}
-    deriv_fitted_roi = {key: [] for key in state_names}
-    rhs_fitted_roi = {key: [] for key in state_names}
-    tic_sample = tm.time()
-    for iSegment in range(1):
-        segment = times_roi[iSegment]
-        input_segment = voltage_roi[iSegment]
-        output_segment = current_roi[iSegment]
-        support_segment = knots_roi[iSegment]
-        state_known_segment = states_known_roi[iSegment]
-        # initialise inner optimisation
-        init_betas = init_betas_roi[iSegment]
-        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
-        try:
-            betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment,
-                                                                                      input_segment,
-                                                                                      output_segment,
-                                                                                      support_segment,
-                                                                                      state_known_segment)
-        except:
-            print('Error encountered during opptimisation.')
-            optimisationFailed = True
-            break  # segments
-        # check collocation solution against truth
-        knots = support_segment
-        model_output = model_bsplines_test.simulate(betas_segment, segment)
-        state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-        # add all costs and performance metrics to store for the run
-        betas_sample.append(betas_segment)
-        inner_costs_sample.append(inner_cost_segment)
-        # save the final value of the segment
-        end_of_roi.append(state_at_estimate[-1, :])
-        for iState, stateName in enumerate(hidden_state_names):
-            state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
-            # deriv_fitted_roi[stateName] += list(deriv_at_estimate[:, iState])
-            # rhs_fitted_roi[stateName] += list(rhs_at_estimate[:,iState])
-    ####################################################################################################################
-    #  optimise the following segments by matching the first B-spline height to the previous segment
-    for iSegment in range(1, len(times_roi)):
-        segment = times_roi[iSegment]
-        input_segment = voltage_roi[iSegment]
-        output_segment = current_roi[iSegment]
-        support_segment = knots_roi[iSegment]
-        collocation_segment = collocation_roi[iSegment]
-        state_known_segment = states_known_roi[iSegment]
-        # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
-        first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
-        # initialise inner optimisation
-        # we must re-initalise the optimisation with that excludes the first coefficient
-        init_betas = init_betas_roi[iSegment][1:]
-        sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - 1)  # inital spread of values
-        try:
-            betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
-                                                                                output_segment,
-                                                                                support_segment,
-                                                                                state_known_segment)
-        except:
-            print('Error encountered during opptimisation.')
-            optimisationFailed = True
-            break  # segments
-        # check collocation solution against truth
-        knots = support_segment
-        model_output = model_bsplines_test.simulate(betas_segment, segment)
-        state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-        # add all costs and performance metrics to store for the run
-        betas_sample.append(betas_segment)
-        inner_costs_sample.append(inner_cost_segment)
-        # store end of segment and the whole state for the
-        end_of_roi.append(state_at_estimate[-1, :])
-        for iState, stateName in enumerate(hidden_state_names):
-            state_fitted_roi[stateName] += list(state_at_estimate[1:, iState])
-            # deriv_fitted_roi[stateName] += list(deriv_at_estimate[1:, iState])
-            # rhs_fitted_roi[stateName] += list(rhs_at_estimate[1:, iState])
-    state_all_segments = np.array(state_fitted_roi[hidden_state_names])
-    # deriv_all_segments = np.array(deriv_fitted_roi[hidden_state_names])
-    # rhs_all_segments = np.array(rhs_fitted_roi[hidden_state_names])
+    # fit the b-spline surface given the true value of the ODE parameter vector
+    result_at_truth = inner_optimisation(Thetas_ODE,times_roi,voltage_roi,current_roi,knots_roi,states_known_roi,init_betas_roi)
+    betas_sample, inner_costs_sample, state_fitted_roi = result_at_truth
+    if len(state_fitted_roi.items())>1:
+        list_of_states = [state_values for _, state_values in state_fitted_roi.items()]
+        state_all_segments = np.array(list_of_states)
+    else:
+        state_all_segments = np.array(state_fitted_roi[hidden_state_names])
+    ## this is to be read at outer cost computation
     #### end of loop over segments
     # evaluate the cost functions at the sampled value of ODE parameter vector
     InnerCost_given_true_theta = sum(inner_costs_sample)
     OuterCost_given_true_theta = error_outer(Thetas_ODE)
-    # store gradient matching cost just to track evolution
-    # d_deriv = (deriv_all_segments - rhs_all_segments) ** 2
-    # integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-    # GradCost_given_true_theta = np.sum(integral_quad, axis=0)
-    GradCost_given_true_theta = (InnerCost_given_true_theta - OuterCost_given_true_theta)/lambd
+    GradCost_given_true_theta = (InnerCost_given_true_theta - OuterCost_given_true_theta) / lambd
     print('Costs at truth:')
     print('Lambda: {0:8.3f}'.format(lambd))
     # print all of the above three costs in one print command
@@ -642,11 +655,14 @@ if __name__ == '__main__':
     # create a logger file
     csv_file_name = 'iterations_one_state_'+state_name+'.csv'
     column_names = ['Iteration','Walker','Theta_1','Theta_2','Theta_3','Theta_4','Inner Cost', 'Outer Cost', 'Gradient Cost']
-    # Create or open the CSV file
+    # parallelisation settings
+    ncpu = mp.cpu_count()
+    ncores = 10
+    # open the file to write to
     with open(csv_file_name, mode='w', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(column_names)
-        #  run the optimisation
+        # run the outer optimisation
         for i in range(150):
             # get the next points (multiple locations)
             thetas = optimiser_outer.ask()
@@ -657,156 +673,94 @@ if __name__ == '__main__':
             betas_visited = []
             # for each theta in the sample
             tic = tm.time()
-            for iTheta, theta in enumerate(thetas):
-                # assign the variable that is readable in the class of B-spline evaluation
-                Thetas_ODE = theta.copy()
-                # fit the b-spline surface given the sampled value of the ODE parameter vector
-                betas_sample = []
-                inner_costs_sample = []
-                end_of_roi = []
-                state_fitted_roi = {key: [] for key in state_names}
-                # deriv_fitted_roi = {key: [] for key in state_names}
-                # rhs_fitted_roi = {key: [] for key in state_names}
-                tic_sample = tm.time()
-                for iSegment in range(1):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    knots = knots_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # initialise inner optimisation
-                    init_betas = init_betas_roi[iSegment]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_first_segment(segment,
-                                                                                                  input_segment,
-                                                                                                  output_segment,
-                                                                                                  knots,
-                                                                                                  state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break  # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment, segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    # add all costs and performance metrics to store for the run
-                    betas_sample.append(betas_segment)
-                    inner_costs_sample.append(inner_cost_segment)
-                    # save the final value of the segment
-                    end_of_roi.append(state_at_estimate[-1, :])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
-                        # deriv_fitted_roi[stateName] += list(deriv_at_estimate[:, iState])
-                        # rhs_fitted_roi[stateName] += list(rhs_at_estimate[:, iState])
-                ####################################################################################################################
-                #  optimise the following segments by matching the first B-spline height to the previous segment
-                for iSegment in range(1, len(times_roi)):
-                    segment = times_roi[iSegment]
-                    input_segment = voltage_roi[iSegment]
-                    output_segment = current_roi[iSegment]
-                    knots = knots_roi[iSegment]
-                    collocation_segment = collocation_roi[iSegment]
-                    state_known_segment = states_known_roi[iSegment]
-                    # find the scaling coeff of the first height by matiching its height at t0 of the segment to the final value of the previous segment
-                    first_spline_coeff = end_of_roi[-1] / collocation_segment[0, 0]
-                    # initialise inner optimisation
-                    # we must re-initalise the optimisation with that excludes the first coefficient
-                    init_betas = init_betas_roi[iSegment][1:]
-                    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs - 1)  # inital spread of values
-                    try:
-                        betas_segment, inner_cost_segment, evals_segment = optimise_segment(segment, input_segment,
-                                                                                            output_segment,
-                                                                                            knots,
-                                                                                            state_known_segment)
-                    except:
-                        print('Error encountered during opptimisation.')
-                        optimisationFailed = True
-                        break  # segments
-                    # check collocation solution against truth
-                    model_output = model_bsplines_test.simulate(betas_segment, segment)
-                    state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
-                    # add all costs and performance metrics to store for the run
-                    betas_sample.append(betas_segment)
-                    inner_costs_sample.append(inner_cost_segment)
-                    # store end of segment and the whole state for the
-                    end_of_roi.append(state_at_estimate[-1, :])
-                    for iState, stateName in enumerate(hidden_state_names):
-                        state_fitted_roi[stateName] += list(state_at_estimate[1:, iState])
-                        # deriv_fitted_roi[stateName] += list(deriv_at_estimate[1:, iState])
-                        # rhs_fitted_roi[stateName] += list(rhs_at_estimate[1:, iState])
-                #### end of loop over segments
-                state_all_segments = np.array(state_fitted_roi[hidden_state_names])
-                # deriv_all_segments = np.array(deriv_fitted_roi[hidden_state_names])
-                # rhs_all_segments = np.array(rhs_fitted_roi[hidden_state_names])
+            # run inner optimisation for each theta sample
+            with mp.get_context('fork').Pool(processes=min(ncpu, ncores)) as pool:
+                results = pool.starmap(inner_optimisation,
+                                       zip(thetas, repeat(times_roi), repeat(voltage_roi), repeat(current_roi),
+                                           repeat(knots_roi), repeat(states_known_roi), repeat(init_betas_roi)))
+            # package results is a list of tuples
+            # extract the results
+            for iSample, result in enumerate(results):
+                betas_sample, inner_costs_sample, state_fitted_at_sample = result
+                # get the states at this sample
+                if len(state_fitted_roi.items()) > 1:
+                    list_of_states = [state_values for _, state_values in state_fitted_at_sample.items()]
+                    state_all_segments = np.array(list_of_states)
+                else:
+                    state_all_segments = np.array(state_fitted_at_sample[hidden_state_names])
                 # evaluate the cost functions at the sampled value of ODE parameter vector
-                InnerCosts.append(sum(inner_costs_sample)) # summed over segments
-                OuterCosts.append(error_outer(Thetas_ODE))
-                # compute gradient matching cost just to track evolution - alternatively can compute just as a difference between inner and outer!
-                # d_deriv = (deriv_all_segments - rhs_all_segments) ** 2
-                # integral_quad = sp.integrate.simpson(y=d_deriv, even='avg', axis=0)
-                # GradCosts.append(np.sum(integral_quad, axis=0))
-                GradCosts.append((InnerCosts[-1]-OuterCosts[-1])/lambd) # for now compute simply as the difference between inner and outer to save time
-                # store all betas for all segments to get reinitialise fot the following iteration
+                InnerCost = sum(inner_costs_sample)
+                OuterCost = error_outer(thetas[iSample, :])
+                GradCost = (InnerCost - OuterCost) / lambd
+                # store the costs
+                InnerCosts.append(InnerCost)
+                OuterCosts.append(OuterCost)
+                GradCosts.append(GradCost)
                 betas_visited.append(betas_sample)
-                del Thetas_ODE # make sure this is updated
-                print(str(iTheta) + '-th sample finished')
-                # write to the logger file
-                row_to_write = [i] + [iTheta] + list(theta) + [InnerCosts[-1], OuterCosts[-1], GradCosts[-1]]
-                writer.writerow(row_to_write)
-                del state_all_segments, row_to_write
-            ## end loop over samples in the CMA-ES population
-            # feed the evaluated scores into the optimisation object
+            # tell the optimiser about the costs
             optimiser_outer.tell(OuterCosts)
-            toc = tm.time()
-            print(str(i) + '-th iteration finished. Elapsed time: ' + str(toc-tic) + 's')
-            # store all costs in the lists
-            InnerCosts_all.append(InnerCosts)
-            OuterCosts_all.append(OuterCosts)
-            GradCost_all.append(GradCosts)
-            # HOW DO I CHECK CONVERGENCE HERE - for all points of average cost???
-            # Store the requested points
-            theta_visited.extend(thetas)
-            # # Store the current guess
-            # theta_g =np.mean(thetas, axis=0)
-            # theta_guessed.append(theta_g)
-            # f_guessed.append(error_outer(theta_g))
-            # Store the accompanying score
-            # Store the best position and score seen so far
+            # store the best point
             index_best = OuterCosts.index(min(OuterCosts))
-            theta_best.append(thetas[index_best,:])
-            init_betas_roi = betas_visited[index_best]
+            theta_best.append(thetas[index_best, :])
             f_outer_best.append(OuterCosts[index_best])
             f_inner_best.append(InnerCosts[index_best])
             f_gradient_best.append(GradCosts[index_best])
-            # the most basic convergence condition after running first fifty
+            betas_best = betas_visited[index_best]
+            # ad hoc solution to the problem of the optimiser getting stuck at the boundary
+            init_betas_roi = []
+            for betas_to_intitialise in betas_best:
+                if any(betas_to_intitialise == upper_bound_beta):
+                    # find index of the offending beta
+                    index = np.where(betas_to_intitialise == upper_bound_beta)[0]
+                    betas_to_intitialise[index] = upper_bound_beta * 0.9
+                init_betas_roi.append(betas_to_intitialise)
+            # store the costs for all samples in the iteration
+            InnerCosts_all.append(InnerCosts)
+            OuterCosts_all.append(OuterCosts)
+            GradCost_all.append(GradCosts)
+            # store the visited points
+            theta_visited.append(thetas)
+
+            # print the results
+            print('Iteration: ', i)
+            print('Best parameters: ', theta_best[-1])
+            print('Best objective: ', f_outer_best[-1])
+            print('Mean objective: ', np.mean(OuterCosts))
+            print('Inner objective at best sample: ', f_inner_best[-1])
+            print('Gradient objective at best sample: ', f_gradient_best[-1])
+            print('Time elapsed: ', tm.time() - tic)
+
+            # write the results to a csv file
+            for iWalker in range(len(thetas)):
+                row = [i, iWalker] + list(thetas[iWalker]) + [InnerCosts[iWalker], OuterCosts[iWalker],
+                                                              GradCosts[iWalker]]
+                writer.writerow(row)
+            file.flush()
+
+            # check for convergence
             if (i > iter_for_convergence):
                 # check how the cost increment changed over the last 10 iterations
                 d_cost = np.diff(f_outer_best[-iter_for_convergence:])
                 # if all incrementa are below a threshold break the loop
-                if all(d<=convergence_threshold for d in d_cost):
+                if all(d <= convergence_threshold for d in d_cost):
                     print("No changes in" + str(iter_for_convergence) + "iterations. Terminating")
                     break
             ## end convergence check condition
         ## end loop over iterations
-    ## end of writing to file
-    # convert lists into arrays
-    theta_visited = np.array(theta_visited)
-    # theta_guessed = np.array(theta_guessed)
+    big_toc = tm.time()
+    # convert the lists to numpy arrays
     theta_best = np.array(theta_best)
     f_outer_best = np.array(f_outer_best)
     f_inner_best = np.array(f_inner_best)
     f_gradient_best = np.array(f_gradient_best)
-    # f_guessed = np.array(f_guessed)
-    big_toc = tm.time()
-    print('Optimisation finished. Elapsed time: ' + str(big_toc-big_tic) + 's')
-    n_walkers = int(theta_visited.shape[0] / len(theta_best))
+    print('Total time taken: ', big_toc - big_tic)
+    print('===========================================================================================================')
     ####################################################################################################################
-    ## write things to files
-    column_names = []
-    for i in range(n_walkers):
-        column_names.append(str(i))
-    ## placeholder for storing all visited betas - not sure whether needed
+    ## save the best betas as a table to csv file
+    df_betas = pd.DataFrame()
+    for i, beta in enumerate(init_betas_roi):
+        df_betas['segment_'+str(i)] = beta
+    df_betas.to_csv('best_betas_'+state_name+'.csv', index=False)
     ####################################################################################################################
     # plot evolution of inner costs
     plt.figure(figsize=(10, 6))
@@ -821,10 +775,10 @@ if __name__ == '__main__':
     plt.plot(f_inner_best, '-b', linewidth=1.5,
              label=r'Best cost:$J(C \mid \Theta_{best}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(
                  f_inner_best[-1]))
-    plt.plot(range(iter), np.ones(iter) * InnerCost_given_true_theta, '--b', linewidth=2.5, alpha=.5, label=r'Collocation solution: $J(C \mid \Theta_{true}, \bar{\mathbf{y}}) = $'  +"{:.5e}".format(InnerCost_given_true_theta))
+    plt.plot(range(len(f_inner_best)), np.ones(len(f_inner_best)) * InnerCost_given_true_theta, '--m', linewidth=2.5, alpha=.5, label=r'Collocation solution: $J(C \mid \Theta_{true}, \bar{\mathbf{y}}) = $'  +"{:.5e}".format(InnerCost_given_true_theta))
     plt.legend(loc='best')
     plt.tight_layout()
-    plt.savefig('Figures/inner_cost_ask_tell_one_state_'+stateName+'.png',dpi=400)
+    plt.savefig('Figures/inner_cost_ask_tell_one_state_'+state_name+'.png',dpi=400)
 
     # plot evolution of outer costs
     plt.figure(figsize=(10, 6))
@@ -838,7 +792,7 @@ if __name__ == '__main__':
     plt.scatter(iter * np.ones(len(OuterCosts_all[iter])), OuterCosts_all[iter], c='k', marker='.', alpha=.5,linewidths=0, label=r'Sample cost: $H(\Theta \mid \hat{C}, \bar{\mathbf{y}})$')
     # plt.plot(range(iter), np.ones(iter) * OuterCost_true, '-m', linewidth=2.5, alpha=.5,label=r'B-splines fit to true state: $H(\Theta \mid  \hat{C}_{direct}, \bar{\mathbf{y}}) = $' + "{:.7f}".format(
     #              OuterCost_true))
-    plt.plot(range(iter), np.ones(iter) * OuterCost_given_true_theta, '--m', linewidth=2.5, alpha=.5,label=r'Collocation solution: $H(\Theta_{true} \mid  \hat{C}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(
+    plt.plot(range(len(f_outer_best)), np.ones(len(f_outer_best)) * OuterCost_given_true_theta, '--m', linewidth=2.5, alpha=.5,label=r'Collocation solution: $H(\Theta_{true} \mid  \hat{C}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(
                  OuterCost_given_true_theta))
     plt.plot(f_outer_best,'-b',linewidth=1.5,label=r'Best cost:$H(\Theta_{best} \mid  \hat{C}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(f_outer_best[-1]))
     plt.legend(loc='best')
@@ -855,7 +809,7 @@ if __name__ == '__main__':
                     linewidths=0)
     iter += 1
     plt.scatter(iter * np.ones(len(GradCost_all[iter])), GradCost_all[iter], c='k', marker='.', alpha=.5,linewidths=0, label=r'Sample cost: $G_{ODE}(\hat{C}  \mid \Theta, \bar{\mathbf{y}})$')
-    plt.plot(range(iter), np.ones(iter) * GradCost_given_true_theta, '--m', linewidth=2.5, alpha=.5,label=r'Collocation solution: $G_{ODE}( \hat{C} \mid  \Theta_{true}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(
+    plt.plot(range(len(f_gradient_best)), np.ones(len(f_gradient_best)) * GradCost_given_true_theta, '--m', linewidth=2.5, alpha=.5,label=r'Collocation solution: $G_{ODE}( \hat{C} \mid  \Theta_{true}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(
                  GradCost_given_true_theta))
     plt.plot(f_gradient_best,'-b',linewidth=1.5,label=r'Best cost:$G_{ODE}(\hat{C} \mid \Theta_{best}, \bar{\mathbf{y}}) = $' + "{:.5e}".format(f_gradient_best[-1]))
     plt.legend(loc='best')
@@ -866,7 +820,7 @@ if __name__ == '__main__':
     fig, axes = plt.subplots(len(theta_true), 1, figsize=(5*len(theta_true), 8), sharex=True)
     for iAx, ax in enumerate(axes.flatten()):
         for iter in range(len(theta_best)):
-            x_visited_iter = theta_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
+            x_visited_iter = theta_visited[iter][:,iAx]
             ax.scatter(iter*np.ones(len(x_visited_iter)),x_visited_iter,c='k',marker='.',alpha=.2,linewidth=0)
         ax.plot(range(iter+1),np.ones(iter+1)*theta_true[iAx], '--m', linewidth=2.5,alpha=.5, label=r"true: $log("+param_names[iAx]+") = $" +"{:.6f}".format(theta_true[iAx]))
         # ax.plot(theta_guessed[:,iAx],'--r',linewidth=1.5,label=r"guessed: $\theta_{"+str(iAx+1)+"} = $" +"{:.4f}".format(theta_guessed[-1,iAx]))
@@ -878,10 +832,9 @@ if __name__ == '__main__':
 
     # plot parameter values converting from log scale to decimal
     fig, axes = plt.subplots(len(theta_true), 1, figsize=(5*len(theta_true), 8), sharex=True)
-    n_walkers = int(theta_visited.shape[0] / len(theta_best))
     for iAx, ax in enumerate(axes.flatten()):
         for iter in range(len(theta_best)):
-            x_visited_iter = theta_visited[iter*n_walkers:(iter+1)*n_walkers,iAx]
+            x_visited_iter = theta_visited[iter][:,iAx]
             ax.scatter(iter*np.ones(len(x_visited_iter)),np.exp(x_visited_iter),c='k',marker='.',alpha=.2,linewidth=0)
         ax.plot(range(iter+1),np.ones(iter+1)*np.exp(theta_true[iAx]), '--m', linewidth=2.5,alpha=.5, label="true: $"+param_names[iAx]+" = $" +"{:.6f}".format(np.exp(theta_true[iAx])))
         # ax.plot(np.exp(theta_guessed[:,iAx]),'--r',linewidth=1.5,label="guessed: $a_{"+str(iAx+1)+"} = $" +"{:.4f}".format(np.exp(theta_guessed[-1,iAx])))
@@ -893,17 +846,16 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig('Figures/ODE_params_one_state_log_scale_'+state_name+'.png',dpi=400)
     ####################################################################################################################
-    print('pause here')
     # plot optimised model output
     Thetas_ODE = theta_best[-1]
-    state_fitted_roi = {key: [] for key in state_names}
-    deriv_fitted_roi = {key: [] for key in state_names}
-    rhs_fitted_roi = {key: [] for key in state_names}
+    state_fitted_roi = {key: [] for key in hidden_state_names}
+    deriv_fitted_roi = {key: [] for key in hidden_state_names}
+    rhs_fitted_roi = {key: [] for key in hidden_state_names}
     for iSegment in range(1):
         segment = times_roi[iSegment]
         knots = knots_roi[iSegment]
         betas_segment = init_betas_roi[iSegment]
-        model_output = model_bsplines_test.simulate(betas_segment, segment)
+        model_output = model_bsplines_test.simulate(betas_segment, knots, segment)
         state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
         for iState, stateName in enumerate(hidden_state_names):
             state_fitted_roi[stateName] += list(state_at_estimate[:, iState])
@@ -915,15 +867,25 @@ if __name__ == '__main__':
         segment = times_roi[iSegment]
         knots = knots_roi[iSegment]
         betas_segment = init_betas_roi[iSegment]
-        model_output = model_bsplines_test.simulate(betas_segment, segment)
+        model_output = model_bsplines_test.simulate(betas_segment, knots, segment)
         state_at_estimate, deriv_at_estimate, rhs_at_estimate = np.split(model_output, 3, axis=1)
         for iState, stateName in enumerate(hidden_state_names):
             state_fitted_roi[stateName] += list(state_at_estimate[1:, iState])
             deriv_fitted_roi[stateName] += list(deriv_at_estimate[1:, iState])
             rhs_fitted_roi[stateName] += list(rhs_at_estimate[1:, iState])
-    state_all_segments = np.array(state_fitted_roi[hidden_state_names])
-    deriv_all_segments = np.array(deriv_fitted_roi[hidden_state_names])
-    rhs_all_segments = np.array(rhs_fitted_roi[hidden_state_names])
+    # stitch segments together
+    if len(state_fitted_roi.items()) > 1:
+        list_of_states = [state_values for _, state_values in state_fitted_roi.items()]
+        state_all_segments = np.array(list_of_states)
+        list_of_derivs = [deriv_values for _, deriv_values in deriv_fitted_roi.items()]
+        deriv_all_segments = np.array(list_of_states)
+        list_of_rhs = [rhs_values for _, rhs_values in rhs_fitted_roi.items()]
+        rhs_all_segments = np.array(list_of_states)
+    else:
+        state_all_segments = np.array(state_fitted_roi[hidden_state_names])
+        deriv_all_segments = np.array(deriv_fitted_roi[hidden_state_names])
+        rhs_all_segments = np.array(rhs_fitted_roi[hidden_state_names])
+
     current_model = g * state_all_segments[:] * state_known * (voltage - EK)
     fig, axes = plt.subplots(3,1,figsize=(14,9),sharex=True)
     y_labels = ['I', '$\dot{' + state_name + '}$', '$' + state_name + '$']
@@ -943,7 +905,7 @@ if __name__ == '__main__':
     fig, axes = plt.subplots(3, 1, figsize=(14, 9), sharex=True)
     y_labels = ['$I_{true} - I_{model}$', '$\dot{' + state_name + r'} - RHS(\beta)$', r'$' + state_name + r'$ - $\Phi\beta$']
     axes[0].plot(times, current_true - current_model, '-k', label='Data error')
-    axes[1].plot(times, deriv_all_segments - rhs_all_segments, '--r', label='Derivative error')
+    axes[1].plot(times, deriv_all_segments - rhs_all_segments, '-k', label='Derivative error')
     axes[2].plot(times, state_hidden_true - state_all_segments, '-k', label='Approximation error')
     for iAx, ax in enumerate(axes.flatten()):
         ax.legend(fontsize=12, loc='best')

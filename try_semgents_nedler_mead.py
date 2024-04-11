@@ -82,13 +82,14 @@ def optimise_first_segment(roi,input_roi,output_roi,support_roi):
     # define a class that outputs only b-spline surface features
     model_bsplines = bsplineOutput()
     init_betas = 0.5 * np.ones(nBsplineCoeffs)  # initial values of B-spline coefficients
-    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
+    # sigma0_betas = 0.2 * np.ones(nBsplineCoeffs)
+    # sigma0_betas = None
     values_to_match_output_dims = np.transpose( np.array([output_roi, input_roi, output_roi, input_roi, output_roi, input_roi]))
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
     error_inner = InnerCriterion(problem=problem_inner)
     boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
-    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
-                                                   boundaries=boundaries_betas, method=pints.CMAES)
+    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas,
+                                                   boundaries=boundaries_betas, method=pints.NelderMead)
     optimiser_inner.set_max_iterations(50000)
     # optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
     optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
@@ -131,13 +132,13 @@ def optimise_segment(roi,input_roi,output_roi,support_roi):
     # define a class that outputs only b-spline surface features
     model_bsplines = bsplineOutputSegment()
     init_betas = 0.5 * np.ones(nBsplineCoeffs-2)  # initial values of B-spline coefficients
-    sigma0_betas = 0.2 * np.ones(nBsplineCoeffs-2)
+    # sigma0_betas = 0.2 * np.ones(nBsplineCoeffs-2)
     values_to_match_output_dims = np.transpose( np.array([output_roi, input_roi, output_roi, input_roi, output_roi, input_roi]))
     problem_inner = pints.MultiOutputProblem(model=model_bsplines, times=roi, values=values_to_match_output_dims)
     error_inner = InnerCriterion(problem=problem_inner)
     boundaries_betas = pints.RectangularBoundaries(np.zeros_like(init_betas), 0.99 * np.ones_like(init_betas))
-    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas, sigma0=sigma0_betas,
-                                                   boundaries=boundaries_betas, method=pints.CMAES)
+    optimiser_inner = pints.OptimisationController(error_inner, x0=init_betas,
+                                                   boundaries=boundaries_betas, method=pints.NelderMead)
     optimiser_inner.set_max_iterations(50000)
     # optimiser_inner.method().set_population_size(min(5, len(init_betas)/2))
     optimiser_inner.set_max_unchanged_iterations(iterations=50, threshold=1e-10)
@@ -161,6 +162,7 @@ if __name__ == '__main__':
     # interpolate with smaller time step (milliseconds)
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
+    lambd = 1000
     # tlim = [0, int(volt_times[-1]*1000)]
     tlim = [300, 14899]
     times = np.linspace(*tlim, tlim[-1]-tlim[0],endpoint=False)
@@ -189,7 +191,7 @@ if __name__ == '__main__':
     ## find switchpoints
     d2v_dt2 = np.diff(volts_new, n=2)
     dv_dt = np.diff(volts_new)
-    der1_nonzero = np.abs(dv_dt) > 1e-2
+    der1_nonzero = np.abs(dv_dt) > 1e-1
     der2_nonzero = np.abs(d2v_dt2) > 1e-1
     switchpoints = [a and b for a, b in zip(der1_nonzero, der2_nonzero)]
     # ignore everything outside of the region of iterest
@@ -320,7 +322,6 @@ if __name__ == '__main__':
     ####################################################################################################################
     ## define pints classes for optimisation
     ## Classes to run optimisation in pints
-    lambd = 10000
     nSegments = len(jump_indeces[:-1])
     nBsplineCoeffs = len(coeffs) * 2  # number of B-spline coefficients for a segment
     print('Inner optimisation is split into '+ str(nSegments) +' segments. Number of B-spline coeffs per segment: ' + str(nBsplineCoeffs))
@@ -498,7 +499,7 @@ if __name__ == '__main__':
 
     axes['a)'].plot(times, observation(times, solution.sol(times), thetas_true), '-k', label=r'Current true', linewidth=2, alpha=0.7)
     axes['a)'].plot(times, observation(times, np.array(states_of_segments), thetas_true), '--b', label=r'Optimised given true $\theta$')
-    axes['a)'].set_xlim(times_of_segments[0],times_of_segments[-1])
+    # axes['a)'].set_xlim(times_of_segments[0],times_of_segments[-1])
     axes['b)'].plot(times, solution.sol(times)[0, :], '-k', label=r'$a$ true', linewidth=2, alpha=0.7)
     axes['b)'].plot(times, state_of_roi[state_names[0]], '--b', label=r'B-spline approximation given true $\theta$')
     axes['c)'].plot(times, solution.sol(times)[1, :], '-k', label=r'$r$ true', linewidth=2, alpha=0.7)
@@ -509,5 +510,5 @@ if __name__ == '__main__':
         ax.legend(fontsize=12, loc='upper left')
         iAx += 1
     # plt.tight_layout(pad=0.3)
-    plt.savefig('Figures/states_all_segments_lambda_'+str(int(lambd))+'.png', dpi=400)
+    plt.savefig('Figures/states_all_segments_NM_lambda_'+str(int(lambd))+'.png', dpi=400)
     print('pause here')

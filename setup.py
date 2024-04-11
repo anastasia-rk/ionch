@@ -1,6 +1,8 @@
 # imports
 import numpy as np
 import scipy as sp
+import pandas as pd
+import pints
 import sys
 from scipy.interpolate import BSpline
 from autograd import hessian, jacobian, grad
@@ -91,7 +93,7 @@ if __name__ == '__main__':
     # interpolate with smaller time step (milliseconds)
     volts_intepolated = sp.interpolate.interp1d(volt_times, volts, kind='previous')
 
-    tlim = [0, 11000]
+    tlim = [0, 13000]
     times = np.linspace(*tlim, tlim[-1] - tlim[0], endpoint=False)
     ###################################################################################################################
     ## Generate data
@@ -106,7 +108,7 @@ if __name__ == '__main__':
 
     x0_kemp = [0,1,1]
     # params takent from Kemp et.al. Table 2 WT, conductance is taken for cell 1.
-    p_kemp = [ 8.53183002138620944e-03,  8.31760044455376601e-02,  1.26287052202195688e-02,  1.03628499834739776e-07,  2.70276339808042609e-01,  1.58000446046794897e-02,  7.66699486356391818e-02,  2.24575000694940963e-02,  1.49033896782688496e-01,  2.43156986537036227e-02,  5.58072076984100361e-04,  4.06619125485430874e-02, 8.47100572058229334e-02]
+    p_kemp = [ 8.5318e-03,  8.3176e-02,  1.2628e-02,  1.03628e-07,  2.702763e-01,  1.580004e-02,  7.6669948e-02,  2.2457500e-02,  1.490338e-01,  2.431569e-02,  5.58072e-04,  4.06619e-02, 8.471005e-02]
     solution_kemp = sp.integrate.solve_ivp(kemp_model, [0,tlim[-1]], x0_kemp, args=[p_kemp], dense_output=True, method='LSODA',rtol=1e-8, atol=1e-8)
     x_kemp = solution_kemp.sol(times)
     current_kemp = kemp_observation(times,x_kemp,p_kemp)
